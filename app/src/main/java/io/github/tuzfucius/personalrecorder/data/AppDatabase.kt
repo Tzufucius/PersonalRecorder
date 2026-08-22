@@ -8,7 +8,11 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [EventEntity::class], version = 2, exportSchema = true)
+@Database(
+    entities = [EventEntity::class, ArchiveSegmentEntity::class, ArchiveSyncStateEntity::class],
+    version = 3,
+    exportSchema = true,
+)
 @TypeConverters(StringListConverter::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun eventDao(): EventDao
@@ -22,7 +26,7 @@ abstract class AppDatabase : RoomDatabase() {
                 context.applicationContext,
                 AppDatabase::class.java,
                 "personal_recorder.db"
-            ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
         }
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -30,6 +34,43 @@ abstract class AppDatabase : RoomDatabase() {
                 database.execSQL(
                     "ALTER TABLE events ADD COLUMN isGroupSummary INTEGER NOT NULL DEFAULT 0"
                 )
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """CREATE TABLE IF NOT EXISTS archive_segments (
+                        segmentId TEXT NOT NULL,
+                        date TEXT NOT NULL,
+                        slot TEXT NOT NULL,
+                        relativePath TEXT NOT NULL,
+                        startMillis INTEGER NOT NULL,
+                        endMillis INTEGER NOT NULL,
+                        eventCount INTEGER NOT NULL,
+                        sha256 TEXT NOT NULL,
+                        closed INTEGER NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        PRIMARY KEY(segmentId)
+                    )""".trimIndent()
+                )
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_archive_segments_date ON archive_segments(date)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_archive_segments_closed ON archive_segments(closed)")
+                database.execSQL(
+                    """CREATE TABLE IF NOT EXISTS archive_sync_states (
+                        segmentId TEXT NOT NULL,
+                        backend TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        attempts INTEGER NOT NULL,
+                        lastAttemptAt INTEGER,
+                        lastError TEXT,
+                        remoteId TEXT,
+                        updatedAt INTEGER NOT NULL,
+                        PRIMARY KEY(segmentId, backend)
+                    )""".trimIndent()
+                )
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_archive_sync_states_status ON archive_sync_states(status)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_archive_sync_states_backend_status ON archive_sync_states(backend, status)")
             }
         }
     }

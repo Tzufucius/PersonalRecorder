@@ -42,7 +42,26 @@ class AppDatabaseMigrationInstrumentedTest {
                 assertEquals(true, cursor.moveToFirst())
                 assertEquals("old", cursor.getString(0))
                 assertEquals(0, cursor.getInt(1))
+        }
+    }
+
+    @Test
+    fun migrate2To3CreatesArchiveTables() {
+        helper.createDatabase("migration-test-v2.db", 2).close()
+
+        helper.runMigrationsAndValidate(
+            "migration-test-v2.db",
+            3,
+            true,
+            AppDatabase.MIGRATION_2_3,
+        ).query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('archive_segments', 'archive_sync_states') ORDER BY name"
+        ).use { cursor ->
+            val names = buildList {
+                while (cursor.moveToNext()) add(cursor.getString(0))
             }
+            assertEquals(listOf("archive_segments", "archive_sync_states"), names)
+        }
     }
 
     private companion object {
