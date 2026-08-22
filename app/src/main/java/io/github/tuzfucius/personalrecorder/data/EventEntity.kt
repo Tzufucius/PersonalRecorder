@@ -27,6 +27,7 @@ data class EventEntity(
     val channelId: String?,
     val groupKey: String?,
     val isOngoing: Boolean,
+    val isGroupSummary: Boolean,
     val isClearable: Boolean,
     val createdAt: Long
 ) {
@@ -45,6 +46,7 @@ data class EventEntity(
         channelId = channelId,
         groupKey = groupKey,
         isOngoing = isOngoing,
+        isGroupSummary = isGroupSummary,
         isClearable = isClearable,
         createdAt = createdAt
     )
@@ -65,6 +67,7 @@ data class EventEntity(
             channelId = event.channelId,
             groupKey = event.groupKey,
             isOngoing = event.isOngoing,
+            isGroupSummary = event.isGroupSummary,
             isClearable = event.isClearable,
             createdAt = event.createdAt
         )

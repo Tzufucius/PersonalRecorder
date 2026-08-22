@@ -64,6 +64,7 @@ class EventDaoInstrumentedTest {
         channelId = null,
         groupKey = null,
         isOngoing = false,
+        isGroupSummary = false,
         isClearable = true,
         createdAt = timestamp
     )
