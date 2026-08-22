@@ -21,6 +21,7 @@ data class PersonalEvent(
     val channelId: String?,
     val groupKey: String?,
     val isOngoing: Boolean,
+    val isGroupSummary: Boolean,
     val isClearable: Boolean,
     val createdAt: Long
 )

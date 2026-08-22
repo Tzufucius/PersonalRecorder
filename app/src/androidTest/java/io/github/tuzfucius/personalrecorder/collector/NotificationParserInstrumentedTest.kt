@@ -52,6 +52,17 @@ class NotificationParserInstrumentedTest {
     }
 
     @Test
+    fun parserReadsGroupSummaryFlag() {
+        val notification = Notification.Builder(context, "test").build().apply {
+            flags = flags or Notification.FLAG_GROUP_SUMMARY
+        }
+
+        val event = NotificationParser.parse(statusBarNotification(notification))
+
+        assertTrue(event?.isGroupSummary == true)
+    }
+
+    @Test
     fun ownPackageIsFiltered() {
         val sbn = statusBarNotification(Notification.Builder(context, "test").build())
 

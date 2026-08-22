@@ -9,6 +9,17 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface EventDao {
+    @Query(
+        "SELECT timestamp, packageName, isOngoing, isGroupSummary FROM events " +
+            "WHERE timestamp >= :startMillis AND timestamp < :endMillis " +
+            "AND packageName != :excludedPackageName ORDER BY timestamp ASC"
+    )
+    fun getStatisticsEvents(
+        startMillis: Long,
+        endMillis: Long,
+        excludedPackageName: String
+    ): Flow<List<StatisticsEventRow>>
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertEvent(event: EventEntity)
 
@@ -31,3 +42,10 @@ interface EventDao {
     @Delete
     suspend fun deleteEvent(event: EventEntity)
 }
+
+data class StatisticsEventRow(
+    val timestamp: Long,
+    val packageName: String,
+    val isOngoing: Boolean,
+    val isGroupSummary: Boolean
+)

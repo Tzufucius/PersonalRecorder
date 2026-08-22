@@ -20,7 +20,7 @@ object NotificationParser {
         val text = readText(extras, Notification.EXTRA_TEXT)
         val bigText = readText(extras, Notification.EXTRA_BIG_TEXT)
         val textLines = readTextLines(extras)
-        val content = bigText ?: text ?: textLines.takeIf { it.isNotEmpty() }?.joinToString("\n")
+        val content = bigText ?: text ?: textLines.firstOrNull()
 
         PersonalEvent(
             id = UUID.randomUUID().toString(),
@@ -41,6 +41,9 @@ object NotificationParser {
             },
             groupKey = runCatching { statusBarNotification.groupKey }.getOrNull(),
             isOngoing = runCatching { statusBarNotification.isOngoing }.getOrDefault(false),
+            isGroupSummary = runCatching {
+                notification.flags and Notification.FLAG_GROUP_SUMMARY != 0
+            }.getOrDefault(false),
             isClearable = runCatching { statusBarNotification.isClearable }.getOrDefault(false),
             createdAt = now
         )
