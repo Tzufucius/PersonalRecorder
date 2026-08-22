@@ -113,7 +113,7 @@ data class SyncBatchResult(val results: List<ArchiveSyncResult>) {
         get() = results.all { it.isSuccessful }
 
     val needsRetry: Boolean
-        get() = results.any { it.error?.retryable == true && !it.retryExhausted }
+        get() = results.any { it.error?.retryable == true }
 }
 
 data class ArchiveSyncState(

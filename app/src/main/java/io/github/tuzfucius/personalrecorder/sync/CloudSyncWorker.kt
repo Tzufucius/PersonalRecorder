@@ -27,7 +27,13 @@ class CloudSyncWorker(
         val syncRunner = runner ?: CloudSyncRuntime.ensureConfigured(applicationContext)
         return runCatching { syncRunner.runSync() }
             .fold(
-                onSuccess = { result -> if (result.needsRetry) Result.retry() else Result.success() },
+                onSuccess = { result ->
+                    when {
+                        !result.needsRetry -> Result.success()
+                        runAttemptCount < Companion.MAX_WORKER_RETRIES -> Result.retry()
+                        else -> Result.failure()
+                    }
+                },
                 onFailure = { Result.retry() }
             )
     }
@@ -43,6 +49,8 @@ class CloudSyncWorker(
         fun clearConfigurationForTests() {
             runner = null
         }
+
+        private const val MAX_WORKER_RETRIES = 3
     }
 }
 

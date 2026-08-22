@@ -53,7 +53,7 @@ class SyncCoordinatorTest {
         val result = SyncCoordinator(listOf(backend), noWaitRetryPolicy())
             .syncBatch(listOf(archive()))
 
-        assertFalse(result.needsRetry)
+        assertTrue(result.needsRetry)
         assertTrue(result.results.single().retryExhausted)
         assertEquals(3, backend.callCount)
     }
