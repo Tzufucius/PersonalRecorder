@@ -40,4 +40,50 @@ class ArchiveWriterTest {
         assertEquals(listOf(ArchiveHalf.AM), result.segments.map { it.slice.half })
         assertEquals(null, result.manifest)
     }
+
+    @Test
+    fun writesEventsToLocalHalfAndEscapesJsonlDeterministically() {
+        val root = Files.createTempDirectory("archive-test").toFile()
+        val date = LocalDate.of(2026, 8, 22)
+        fun event(id: String, hour: Int, minute: Int, content: String) = PersonalEvent(
+            id = id,
+            timestamp = date.atTime(hour, minute).atZone(zone).toInstant().toEpochMilli(),
+            source = "notification",
+            packageName = "com.example",
+            title = "标题",
+            content = content,
+            bigText = null,
+            textLines = emptyList(),
+            notificationKey = "key-$id",
+            notificationId = 1,
+            category = null,
+            channelId = null,
+            groupKey = null,
+            isOngoing = false,
+            isGroupSummary = false,
+            isClearable = true,
+            createdAt = 1L,
+        )
+        val events = listOf(
+            event("late", 23, 59, "中文\n换行"),
+            event("early", 0, 1, "first"),
+            event("noon", 12, 0, "second"),
+            event("morning", 11, 59, "third"),
+        )
+        val result = ArchiveWriter(root, zone).writeDay(
+            date,
+            events,
+            nowMillis = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        )
+
+        val morning = result.segments.first { it.slice.half == ArchiveHalf.AM }.file.readLines()
+        val afternoon = result.segments.first { it.slice.half == ArchiveHalf.PM }.file.readLines()
+        assertEquals(2, morning.size)
+        assertEquals(2, afternoon.size)
+        assertTrue(morning[0].contains("\"id\":\"early\""))
+        assertTrue(morning[1].contains("\"id\":\"morning\""))
+        assertTrue(afternoon[0].contains("\"id\":\"noon\""))
+        assertTrue(afternoon[1].contains("\\n"))
+        assertTrue(afternoon[1].contains("中文"))
+    }
 }

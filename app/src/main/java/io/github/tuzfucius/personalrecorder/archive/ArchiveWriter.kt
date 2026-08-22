@@ -54,7 +54,7 @@ class ArchiveWriter(
                 .sortedWith(compareBy<PersonalEvent> { it.timestamp }.thenBy { it.id })
                 .map { json.encodeToString(ArchivedEvent.fromPersonalEvent(it)) }
                 .toList()
-            file.writeText(if (lines.isEmpty()) "" else lines.joinToString(separator = "", postfix = "\n"), StandardCharsets.UTF_8)
+            file.writeText(if (lines.isEmpty()) "" else lines.joinToString(separator = "\n", postfix = "\n"), StandardCharsets.UTF_8)
         }
         return ArchiveSegmentResult(slice, file, countLines(file), sha256(file))
     }
