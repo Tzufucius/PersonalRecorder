@@ -15,6 +15,8 @@ private val Context.cloudSyncDataStore by preferencesDataStore(name = "cloud_syn
 data class CloudSyncSettings(
     val githubEnabled: Boolean = false,
     val googleDriveEnabled: Boolean = false,
+    val githubConnected: Boolean = false,
+    val googleDriveConnected: Boolean = false,
     val frequency: SyncFrequency = SyncFrequency.TWICE_DAILY
 )
 
@@ -32,6 +34,8 @@ class CloudSyncSettingsStore(context: Context) {
                 CloudSyncSettings(
                     githubEnabled = preferences[GITHUB_ENABLED] ?: false,
                     googleDriveEnabled = preferences[GOOGLE_DRIVE_ENABLED] ?: false,
+                    githubConnected = preferences[GITHUB_CONNECTED] ?: false,
+                    googleDriveConnected = preferences[GOOGLE_DRIVE_CONNECTED] ?: false,
                     frequency = preferences[FREQUENCY]
                         ?.let { value -> runCatching { SyncFrequency.valueOf(value) }.getOrNull() }
                         ?: SyncFrequency.TWICE_DAILY
@@ -48,6 +52,14 @@ class CloudSyncSettingsStore(context: Context) {
         appContext.cloudSyncDataStore.edit { it[GOOGLE_DRIVE_ENABLED] = enabled }
     }
 
+    suspend fun setGithubConnected(connected: Boolean) {
+        appContext.cloudSyncDataStore.edit { it[GITHUB_CONNECTED] = connected }
+    }
+
+    suspend fun setGoogleDriveConnected(connected: Boolean) {
+        appContext.cloudSyncDataStore.edit { it[GOOGLE_DRIVE_CONNECTED] = connected }
+    }
+
     suspend fun setFrequency(frequency: SyncFrequency) {
         appContext.cloudSyncDataStore.edit { it[FREQUENCY] = frequency.name }
     }
@@ -55,6 +67,8 @@ class CloudSyncSettingsStore(context: Context) {
     private companion object {
         val GITHUB_ENABLED = booleanPreferencesKey("github_enabled")
         val GOOGLE_DRIVE_ENABLED = booleanPreferencesKey("google_drive_enabled")
+        val GITHUB_CONNECTED = booleanPreferencesKey("github_connected")
+        val GOOGLE_DRIVE_CONNECTED = booleanPreferencesKey("google_drive_connected")
         val FREQUENCY = stringPreferencesKey("frequency")
     }
 }

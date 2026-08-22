@@ -1,5 +1,6 @@
 package io.github.tuzfucius.personalrecorder.ui
 
+import android.app.Activity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -36,15 +37,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import com.google.android.gms.auth.api.identity.AuthorizationRequest
+import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.common.api.Scope
 import io.github.tuzfucius.personalrecorder.data.AppDatabase
 import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettings
 import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsState
 import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsStore
 import io.github.tuzfucius.personalrecorder.sync.CloudBackendType
+import io.github.tuzfucius.personalrecorder.sync.CloudCredentialStore
 import io.github.tuzfucius.personalrecorder.sync.CloudSyncRuntime
 import io.github.tuzfucius.personalrecorder.sync.SyncFrequency
+import io.github.tuzfucius.personalrecorder.sync.SecureSecretStore
+import io.github.tuzfucius.personalrecorder.sync.GOOGLE_DRIVE_FILE_SCOPE
+import io.github.tuzfucius.personalrecorder.sync.GitHubOAuthRuntime
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
@@ -71,6 +83,31 @@ fun SettingsScreen() {
         .collectAsStateWithLifecycle(initialValue = null)
     var syncing by rememberSaveable { mutableStateOf(false) }
     var message by rememberSaveable { mutableStateOf<String?>(null) }
+    val googleActivity = context as? Activity
+    val googleAuthLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        val activity = googleActivity ?: return@rememberLauncherForActivityResult
+        if (result.resultCode != Activity.RESULT_OK || result.data == null) {
+            message = "Google Drive 授权已取消"
+        } else {
+            runCatching {
+                Identity.getAuthorizationClient(activity)
+                    .getAuthorizationResultFromIntent(result.data)
+            }.onSuccess { authorizationResult ->
+                val token = authorizationResult.accessToken
+                if (token.isNullOrBlank()) {
+                    message = "Google Drive 授权未返回 access token"
+                } else {
+                    SecureSecretStore(context).put(CloudCredentialStore.GOOGLE_ACCESS_TOKEN, token)
+                    scope.launch { store.setGoogleDriveConnected(true) }
+                    message = "Google Drive 已连接"
+                }
+            }.onFailure { error ->
+                message = "Google Drive 授权失败：${error.message ?: "未知错误"}"
+            }
+        }
+    }
 
     Scaffold(topBar = { TopAppBar(title = { Text("设置") }) }) { padding ->
         LazyColumn(
@@ -97,10 +134,22 @@ fun SettingsScreen() {
                         enabled = settings.githubEnabled,
                         pendingCount = githubPending.size,
                         lastSync = githubLastSync,
-                        connected = false,
+                        connected = settings.githubConnected,
                         onEnabledChange = { enabled -> scope.launch { store.setGithubEnabled(enabled) } },
-                        onConnect = { message = "GitHub OAuth 需要配置可信 token-exchange 服务" },
-                        onDisconnect = { message = "GitHub 当前未连接" },
+                        onConnect = {
+                            GitHubOAuthRuntime.start(context).fold(
+                                onSuccess = { message = "已打开 GitHub 授权页面，完成授权后返回应用" },
+                                onFailure = { message = it.message ?: "GitHub OAuth 未配置" }
+                            )
+                        },
+                        onDisconnect = {
+                            scope.launch {
+                                CloudCredentialStore(context).clearGithub()
+                                store.setGithubConnected(false)
+                                store.setGithubEnabled(false)
+                            }
+                            message = "GitHub 已断开，本地归档与同步历史已保留"
+                        },
                     )
                 }
                 item {
@@ -109,10 +158,48 @@ fun SettingsScreen() {
                         enabled = settings.googleDriveEnabled,
                         pendingCount = drivePending.size,
                         lastSync = driveLastSync,
-                        connected = false,
+                        connected = settings.googleDriveConnected,
                         onEnabledChange = { enabled -> scope.launch { store.setGoogleDriveEnabled(enabled) } },
-                        onConnect = { message = "Google Drive 连接需要配置 OAuth Client" },
-                        onDisconnect = { message = "Google Drive 当前未连接" },
+                        onConnect = {
+                            val activity = googleActivity
+                            if (activity == null) {
+                                message = "当前页面不支持 Google Drive 授权"
+                            } else {
+                                val request = AuthorizationRequest.builder()
+                                    .setRequestedScopes(mutableListOf(Scope(GOOGLE_DRIVE_FILE_SCOPE)))
+                                    .build()
+                                Identity.getAuthorizationClient(activity)
+                                    .authorize(request)
+                                    .addOnSuccessListener { authorizationResult ->
+                                        val pendingIntent = authorizationResult.pendingIntent
+                                        if (authorizationResult.hasResolution() && pendingIntent != null) {
+                                            googleAuthLauncher.launch(
+                                                IntentSenderRequest.Builder(pendingIntent.intentSender).build()
+                                            )
+                                        } else {
+                                            val token = authorizationResult.accessToken
+                                            if (token.isNullOrBlank()) {
+                                                message = "Google Drive 授权未返回 access token"
+                                            } else {
+                                                SecureSecretStore(context).put(CloudCredentialStore.GOOGLE_ACCESS_TOKEN, token)
+                                                scope.launch { store.setGoogleDriveConnected(true) }
+                                                message = "Google Drive 已连接"
+                                            }
+                                        }
+                                    }
+                                    .addOnFailureListener { error ->
+                                        message = "Google Drive 授权失败：${error.message ?: "未知错误"}"
+                                    }
+                            }
+                        },
+                        onDisconnect = {
+                            scope.launch {
+                                CloudCredentialStore(context).clearGoogleDrive()
+                                store.setGoogleDriveConnected(false)
+                                store.setGoogleDriveEnabled(false)
+                            }
+                            message = "Google Drive 已断开，本地归档与同步历史已保留"
+                        },
                     )
                 }
                 item {
@@ -182,7 +269,11 @@ private fun BackendCard(
                 )
                 Spacer(Modifier.padding(horizontal = 4.dp))
                 Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                Switch(checked = enabled, onCheckedChange = onEnabledChange)
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = onEnabledChange,
+                    modifier = Modifier.testTag("${title.lowercase().replace(' ', '-')}-sync-switch")
+                )
             }
             HorizontalDivider()
             Text(if (connected) "已连接" else "未连接", color = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
