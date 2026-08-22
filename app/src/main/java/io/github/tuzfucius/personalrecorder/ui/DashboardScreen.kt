@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -66,7 +67,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
 
-private enum class AppPage { RECORDS, STATISTICS }
+private enum class AppPage { RECORDS, STATISTICS, SETTINGS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,7 +83,15 @@ fun PersonalRecorderApp() {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (page == AppPage.RECORDS) "记录" else "统计") },
+                title = {
+                    Text(
+                        when (page) {
+                            AppPage.RECORDS -> "记录"
+                            AppPage.STATISTICS -> "统计"
+                            AppPage.SETTINGS -> "设置"
+                        }
+                    )
+                },
                 actions = {
                     if (page == AppPage.RECORDS) {
                         IconButton(onClick = { showFilterSettings = true }) {
@@ -106,11 +115,21 @@ fun PersonalRecorderApp() {
                     icon = { Icon(Icons.Default.Insights, contentDescription = null) },
                     label = { Text("统计") }
                 )
+                NavigationBarItem(
+                    selected = page == AppPage.SETTINGS,
+                    onClick = { page = AppPage.SETTINGS },
+                    icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                    label = { Text("设置") }
+                )
             }
         }
     ) { innerPadding ->
         Column(modifier = Modifier.padding(innerPadding)) {
-            if (page == AppPage.RECORDS) DashboardScreen() else StatisticsScreen()
+            when (page) {
+                AppPage.RECORDS -> DashboardScreen()
+                AppPage.STATISTICS -> StatisticsScreen()
+                AppPage.SETTINGS -> SettingsScreen()
+            }
         }
     }
 }

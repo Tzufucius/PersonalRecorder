@@ -36,7 +36,7 @@ class CloudSyncSettingsStore(context: Context) {
                         ?.let { value -> runCatching { SyncFrequency.valueOf(value) }.getOrNull() }
                         ?: SyncFrequency.TWICE_DAILY
                 )
-            )
+            ) as CloudSyncSettingsState
         }
         .catch { emit(CloudSyncSettingsState.Error(it)) }
 

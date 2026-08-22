@@ -51,7 +51,7 @@ interface EventDao {
 
     @Query(
         "SELECT * FROM archive_segments WHERE closed = 1 " +
-            "AND segmentId NOT IN (SELECT segmentId FROM archive_sync_states WHERE backend = :backend AND status = 'SUCCEEDED') " +
+            "AND segmentId NOT IN (SELECT segmentId FROM archive_sync_states WHERE backend = :backend AND status = 'SYNCED') " +
             "ORDER BY startMillis ASC"
     )
     fun getPendingArchiveSegments(backend: String): Flow<List<ArchiveSegmentEntity>>
@@ -68,6 +68,9 @@ interface EventDao {
     )
     suspend fun getEventsForArchive(startMillis: Long, endMillis: Long): List<EventEntity>
 
+    @Query("SELECT MIN(timestamp) AS minTimestamp, MAX(timestamp) AS maxTimestamp FROM events")
+    suspend fun getEventTimestampBounds(): EventTimestampBounds
+
     @Upsert
     suspend fun upsertArchiveSyncState(state: ArchiveSyncStateEntity)
 
@@ -78,6 +81,9 @@ interface EventDao {
 
     @Query("SELECT * FROM archive_sync_states WHERE backend = :backend AND status = :status")
     fun getArchiveSyncStates(backend: String, status: String): Flow<List<ArchiveSyncStateEntity>>
+
+    @Query("SELECT MAX(updatedAt) FROM archive_sync_states WHERE backend = :backend AND status = 'SYNCED'")
+    fun getLastSyncedAt(backend: String): Flow<Long?>
 }
 
 data class StatisticsEventRow(
@@ -85,4 +91,9 @@ data class StatisticsEventRow(
     val packageName: String,
     val isOngoing: Boolean,
     val isGroupSummary: Boolean
+)
+
+data class EventTimestampBounds(
+    val minTimestamp: Long?,
+    val maxTimestamp: Long?,
 )

@@ -66,7 +66,8 @@ class GoogleDriveCloudSyncBackend(
 ) : CloudSyncBackend {
     override val type = CloudBackendType.GOOGLE_DRIVE
 
-    override suspend fun sync(archive: CloudArchive): BackendSyncResult = runCatching {
+    override suspend fun sync(archive: CloudArchive): BackendSyncResult {
+        return try {
         val path = archive.relativePath.split('/').filter { it.isNotBlank() }
         if (path.size < 2) return BackendSyncResult.Failure(SyncError.InvalidArchive("Drive 归档路径缺少父目录"))
         val parentId = folderResolver.resolveFolder(path.dropLast(1))
@@ -83,5 +84,16 @@ class GoogleDriveCloudSyncBackend(
                 SyncError.RemoteConflict("Drive 中同路径文件 SHA-256 与本地归档不一致")
             )
         }
-    }.getOrElse { BackendSyncResult.Failure(SyncError.Network("Google Drive 上传失败", it)) }
+    } catch (error: SyncHttpException) {
+        when {
+            error.statusCode == 401 -> BackendSyncResult.Failure(SyncError.Authentication(error.message))
+            error.statusCode == 403 -> BackendSyncResult.Failure(SyncError.Authorization(error.message))
+            error.statusCode == 429 -> BackendSyncResult.Failure(SyncError.RateLimited(error.message))
+            error.statusCode >= 500 -> BackendSyncResult.Failure(SyncError.ServiceUnavailable(error.message))
+            else -> BackendSyncResult.Failure(SyncError.Unknown(error.message, error))
+        }
+    } catch (error: Throwable) {
+        BackendSyncResult.Failure(SyncError.Network("Google Drive 上传失败", error))
+        }
+    }
 }
