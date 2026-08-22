@@ -77,7 +77,7 @@ class SyncCoordinator(
                 .getOrElse { BackendSyncResult.Failure(SyncError.Network("同步请求失败", it)) }) {
                 is BackendSyncResult.Success -> {
                     val final = ArchiveSyncResult(
-                        archive, backend.type, ArchiveSyncStatus.SUCCEEDED, attempt,
+                        archive, backend.type, ArchiveSyncStatus.SYNCED, attempt,
                         remoteReference = result.remoteReference
                     )
                     observer.onStateChanged(ArchiveSyncState(archive, backend.type, final.status, attempt))
@@ -85,11 +85,7 @@ class SyncCoordinator(
                 }
 
                 is BackendSyncResult.Failure -> {
-                    val status = if (result.error is SyncError.RemoteConflict) {
-                        ArchiveSyncStatus.CONFLICT
-                    } else {
-                        ArchiveSyncStatus.FAILED
-                    }
+                    val status = ArchiveSyncStatus.FAILED
                     if (!result.error.retryable || attempt >= retryPolicy.maxAttempts) {
                         val final = ArchiveSyncResult(archive, backend.type, status, attempt, error = result.error)
                         observer.onStateChanged(ArchiveSyncState(archive, backend.type, status, attempt, result.error))

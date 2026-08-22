@@ -17,9 +17,8 @@ enum class SyncFrequency(val repeatIntervalMillis: Long) {
 enum class ArchiveSyncStatus {
     PENDING,
     SYNCING,
-    SUCCEEDED,
-    FAILED,
-    CONFLICT
+    SYNCED,
+    FAILED
 }
 
 /**
@@ -105,7 +104,7 @@ data class ArchiveSyncResult(
     val error: SyncError? = null
 ) {
     val isSuccessful: Boolean
-        get() = status == ArchiveSyncStatus.SUCCEEDED
+        get() = status == ArchiveSyncStatus.SYNCED
 }
 
 data class SyncBatchResult(val results: List<ArchiveSyncResult>) {

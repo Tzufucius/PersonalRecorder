@@ -26,7 +26,7 @@ class SyncCoordinatorTest {
     }
 
     @Test
-    fun fakeBackendDoesNotRetryConflictAndReportsConflictStatus() = runBlocking {
+    fun fakeBackendDoesNotRetryConflictAndReportsFailedStatus() = runBlocking {
         val backend = FakeBackend(
             CloudBackendType.GOOGLE_DRIVE,
             mutableListOf(BackendSyncResult.Failure(SyncError.RemoteConflict("sha mismatch")))
@@ -35,7 +35,7 @@ class SyncCoordinatorTest {
 
         val result = coordinator.syncBatch(listOf(archive()), setOf(CloudBackendType.GOOGLE_DRIVE))
 
-        assertEquals(ArchiveSyncStatus.CONFLICT, result.results.single().status)
+        assertEquals(ArchiveSyncStatus.FAILED, result.results.single().status)
         assertEquals(1, backend.callCount)
         assertFalse(result.needsRetry)
     }
