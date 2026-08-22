@@ -18,7 +18,14 @@
 | `channelId` | String? | Android 通知渠道 ID |
 | `groupKey` | String? | Android 通知分组 key |
 | `isOngoing` | Boolean | 是否为持续通知 |
+| `isGroupSummary` | Boolean | 是否为通知组摘要 |
 | `isClearable` | Boolean | 是否可被用户清除 |
 | `createdAt` | Long | 本地保存时间，Unix epoch milliseconds |
 
 同一个 notification key 的后续更新会追加为新事件，不进行聊天语义去重。通知移除回调不会产生新事件。
+
+## 统计口径
+
+- 原始事件：数据库中保存的所有通知事件。
+- 有效统计事件：排除自身应用、当前应用筛选之外的包、`isOngoing` 和 `isGroupSummary` 后的事件。
+- 逻辑消息：本项目当前不推断聊天消息，也不做语义去重。
