@@ -130,7 +130,13 @@ object UnconfiguredGitHubTokenExchange : GitHubTokenExchange {
         BackendSyncResult.Failure(SyncError.NotConfigured("未配置 GitHub 可信 token 交换服务"))
 }
 
-data class GitHubRepository(val owner: String, val name: String)
+data class GitHubRepository(val owner: String, val name: String) {
+    companion object {
+        const val DEFAULT_NAME = "PersonalRecorder-Archive"
+
+        fun defaultFor(owner: String): GitHubRepository = GitHubRepository(owner, DEFAULT_NAME)
+    }
+}
 data class GitHubRepositoryAccess(val owner: String, val isPrivate: Boolean, val canPush: Boolean)
 
 interface GitHubRepositoryInspector {
