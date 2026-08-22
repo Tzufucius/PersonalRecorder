@@ -101,7 +101,8 @@ data class ArchiveSyncResult(
     val status: ArchiveSyncStatus,
     val attempts: Int,
     val remoteReference: String? = null,
-    val error: SyncError? = null
+    val error: SyncError? = null,
+    val retryExhausted: Boolean = false,
 ) {
     val isSuccessful: Boolean
         get() = status == ArchiveSyncStatus.SYNCED
@@ -112,7 +113,7 @@ data class SyncBatchResult(val results: List<ArchiveSyncResult>) {
         get() = results.all { it.isSuccessful }
 
     val needsRetry: Boolean
-        get() = results.any { it.error?.retryable == true }
+        get() = results.any { it.error?.retryable == true && !it.retryExhausted }
 }
 
 data class ArchiveSyncState(

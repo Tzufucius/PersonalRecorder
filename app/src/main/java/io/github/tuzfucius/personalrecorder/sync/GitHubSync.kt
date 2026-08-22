@@ -88,17 +88,32 @@ class GitHubOAuthCoordinator(
 }
 
 /** 进程内暂存 PKCE verifier，避免将其写入普通 DataStore 或日志。 */
-class GitHubOAuthDeepLinkCoordinator(private val oauth: GitHubOAuthCoordinator) {
+class GitHubOAuthDeepLinkCoordinator(
+    private val oauth: GitHubOAuthCoordinator,
+    private val secureSecrets: SecureSecretStore? = null,
+) {
     private var pendingSession: GitHubOAuthSession? = null
 
     @Synchronized
-    fun startAuthorization(): GitHubOAuthSession = oauth.beginAuthorization().also { pendingSession = it }
+    fun startAuthorization(): GitHubOAuthSession = oauth.beginAuthorization().also {
+        pendingSession = it
+        secureSecrets?.put(CloudCredentialStore.GITHUB_PENDING_STATE, it.state)
+        secureSecrets?.put(CloudCredentialStore.GITHUB_PENDING_VERIFIER, it.codeVerifier)
+    }
 
     @Synchronized
     fun consumeCallback(callbackUri: String): Pair<GitHubOAuthCallback, String?> {
-        val session = pendingSession ?: return GitHubOAuthCallback.Invalid("没有待处理的 OAuth 请求") to null
+        val session = pendingSession ?: secureSecrets?.get(CloudCredentialStore.GITHUB_PENDING_STATE)?.let { state ->
+            secureSecrets.get(CloudCredentialStore.GITHUB_PENDING_VERIFIER)?.let { verifier ->
+                GitHubOAuthSession(state, verifier, "")
+            }
+        } ?: return GitHubOAuthCallback.Invalid("没有待处理的 OAuth 请求") to null
         val callback = oauth.parseCallback(callbackUri, session.state)
-        if (callback !is GitHubOAuthCallback.Invalid) pendingSession = null
+        if (callback !is GitHubOAuthCallback.Invalid) {
+            pendingSession = null
+            secureSecrets?.remove(CloudCredentialStore.GITHUB_PENDING_STATE)
+            secureSecrets?.remove(CloudCredentialStore.GITHUB_PENDING_VERIFIER)
+        }
         return callback to if (callback is GitHubOAuthCallback.Authorized) session.codeVerifier else null
     }
 }
@@ -164,7 +179,7 @@ class GitHubCloudSyncBackend(
     override suspend fun sync(archive: CloudArchive): BackendSyncResult = syncBatch(listOf(archive))[archive.relativePath]
         ?: BackendSyncResult.Failure(SyncError.Unknown("GitHub 同步没有返回归档结果"))
 
-    suspend fun syncBatch(archives: Collection<CloudArchive>): Map<String, BackendSyncResult> {
+    override suspend fun syncBatch(archives: Collection<CloudArchive>): Map<String, BackendSyncResult> {
         if (archives.isEmpty()) return emptyMap()
         guard.validate(repository)?.let { error ->
             return archives.associate { it.relativePath to BackendSyncResult.Failure(error) }

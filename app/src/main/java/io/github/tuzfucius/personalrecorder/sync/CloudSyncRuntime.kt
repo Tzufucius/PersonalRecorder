@@ -77,7 +77,20 @@ class ArchiveSyncRunner(
             persistState(stateId, backendType, result)
             return result
         }
-        val archive = CloudArchive(relativePath, sha256, file.readBytes())
+        val bytes = file.readBytes()
+        if (!sha256(bytes).equals(sha256, ignoreCase = true)) {
+            val invalidArchive = CloudArchive(relativePath, sha256, bytes)
+            val result = ArchiveSyncResult(
+                invalidArchive,
+                backendType,
+                ArchiveSyncStatus.FAILED,
+                attempts = 0,
+                error = SyncError.InvalidArchive("本地归档 SHA-256 校验失败: $relativePath"),
+            )
+            persistState(stateId, backendType, result)
+            return result
+        }
+        val archive = CloudArchive(relativePath, sha256, bytes)
         val result = coordinator.syncBatch(listOf(archive), setOf(backendType)).results.first()
         persistState(stateId, backendType, result)
         return result
@@ -141,6 +154,10 @@ class ArchiveSyncRunner(
         }
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
+
+    private fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
+        .digest(bytes)
+        .joinToString("") { "%02x".format(it) }
 
     private data class ManifestUpload(val segmentId: String, val relativePath: String, val sha256: String)
 }

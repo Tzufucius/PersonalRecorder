@@ -46,55 +46,77 @@ class SyncCoordinator(
         observer: SyncObserver = SyncObserver.NONE
     ): SyncBatchResult {
         val results = buildList {
-            archives.sortedBy { it.relativePath }.forEach { archive ->
-                backendTypes.sortedBy { it.name }.forEach { backendType ->
-                    val backend = backendsByType[backendType]
-                    if (backend == null) {
-                        val error = SyncError.NotConfigured("未配置 ${backendType.name} 同步后端")
+            val sortedArchives = archives.sortedBy { it.relativePath }
+            backendTypes.sortedBy { it.name }.forEach { backendType ->
+                val backend = backendsByType[backendType]
+                if (backend == null) {
+                    val error = SyncError.NotConfigured("未配置 ${backendType.name} 同步后端")
+                    sortedArchives.forEach { archive ->
                         observer.onStateChanged(
                             ArchiveSyncState(archive, backendType, ArchiveSyncStatus.FAILED, error = error)
                         )
                         add(ArchiveSyncResult(archive, backendType, ArchiveSyncStatus.FAILED, 0, error = error))
-                    } else {
-                        add(syncOne(backend, archive, observer))
                     }
+                } else {
+                    addAll(syncBackendBatch(backend, sortedArchives, observer))
                 }
             }
         }
         return SyncBatchResult(results)
     }
 
-    private suspend fun syncOne(
+    private suspend fun syncBackendBatch(
         backend: CloudSyncBackend,
-        archive: CloudArchive,
+        archives: List<CloudArchive>,
         observer: SyncObserver
-    ): ArchiveSyncResult {
-        observer.onStateChanged(ArchiveSyncState(archive, backend.type, ArchiveSyncStatus.PENDING))
+    ): List<ArchiveSyncResult> {
+        if (archives.isEmpty()) return emptyList()
+        val completed = mutableListOf<ArchiveSyncResult>()
+        var pending = archives
         var attempt = 1
-        while (true) {
-            observer.onStateChanged(ArchiveSyncState(archive, backend.type, ArchiveSyncStatus.SYNCING, attempt))
-            when (val result = runCatching { backend.sync(archive) }
-                .getOrElse { BackendSyncResult.Failure(SyncError.Network("同步请求失败", it)) }) {
-                is BackendSyncResult.Success -> {
-                    val final = ArchiveSyncResult(
-                        archive, backend.type, ArchiveSyncStatus.SYNCED, attempt,
-                        remoteReference = result.remoteReference
-                    )
-                    observer.onStateChanged(ArchiveSyncState(archive, backend.type, final.status, attempt))
-                    return final
-                }
-
-                is BackendSyncResult.Failure -> {
-                    val status = ArchiveSyncStatus.FAILED
-                    if (!result.error.retryable || attempt >= retryPolicy.maxAttempts) {
-                        val final = ArchiveSyncResult(archive, backend.type, status, attempt, error = result.error)
-                        observer.onStateChanged(ArchiveSyncState(archive, backend.type, status, attempt, result.error))
-                        return final
+        pending.forEach { observer.onStateChanged(ArchiveSyncState(it, backend.type, ArchiveSyncStatus.PENDING)) }
+        while (pending.isNotEmpty()) {
+            pending.forEach { observer.onStateChanged(ArchiveSyncState(it, backend.type, ArchiveSyncStatus.SYNCING, attempt)) }
+            val results = runCatching { backend.syncBatch(pending) }.getOrElse { error ->
+                pending.associate { it.relativePath to BackendSyncResult.Failure(SyncError.Network("同步请求失败", error)) }
+            }
+            val retry = mutableListOf<CloudArchive>()
+            var retryError: SyncError? = null
+            pending.forEach { archive ->
+                val backendResult = results[archive.relativePath]
+                    ?: BackendSyncResult.Failure(SyncError.Unknown("后端没有返回归档结果"))
+                when (backendResult) {
+                    is BackendSyncResult.Success -> {
+                        val final = ArchiveSyncResult(
+                            archive, backend.type, ArchiveSyncStatus.SYNCED, attempt,
+                            remoteReference = backendResult.remoteReference
+                        )
+                        completed += final
+                        observer.onStateChanged(ArchiveSyncState(archive, backend.type, final.status, attempt))
                     }
-                    retryPolicy.waitBeforeRetry(attempt, result.error)
-                    attempt++
+                    is BackendSyncResult.Failure -> {
+                        if (backendResult.error.retryable && attempt < retryPolicy.maxAttempts) {
+                            retry += archive
+                            retryError = retryError ?: backendResult.error
+                        } else {
+                            val final = ArchiveSyncResult(
+                                archive, backend.type, ArchiveSyncStatus.FAILED, attempt,
+                                error = backendResult.error,
+                                retryExhausted = backendResult.error.retryable && attempt >= retryPolicy.maxAttempts,
+                            )
+                            completed += final
+                            observer.onStateChanged(
+                                ArchiveSyncState(archive, backend.type, final.status, attempt, backendResult.error)
+                            )
+                        }
+                    }
                 }
             }
+            if (retry.isEmpty()) break
+            retryPolicy.waitBeforeRetry(attempt, requireNotNull(retryError))
+            pending = retry
+            attempt++
         }
+        return completed.sortedBy { it.archive.relativePath }
     }
 }

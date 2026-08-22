@@ -41,6 +41,24 @@ class SyncCoordinatorTest {
     }
 
     @Test
+    fun exhaustedNetworkFailureDoesNotKeepWorkerInInfiniteRetryLoop() = runBlocking {
+        val backend = FakeBackend(
+            CloudBackendType.GITHUB,
+            mutableListOf(
+                BackendSyncResult.Failure(SyncError.Network("offline")),
+                BackendSyncResult.Failure(SyncError.Network("offline")),
+                BackendSyncResult.Failure(SyncError.Network("offline")),
+            )
+        )
+        val result = SyncCoordinator(listOf(backend), noWaitRetryPolicy())
+            .syncBatch(listOf(archive()))
+
+        assertFalse(result.needsRetry)
+        assertTrue(result.results.single().retryExhausted)
+        assertEquals(3, backend.callCount)
+    }
+
+    @Test
     fun oneBackendFailureDoesNotPreventAnotherBackend() = runBlocking {
         val github = FakeBackend(
             CloudBackendType.GITHUB,

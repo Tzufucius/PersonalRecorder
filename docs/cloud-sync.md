@@ -16,7 +16,9 @@
 
 默认私有仓库为 `PersonalRecorder-Archive`，路径为 `archive/YYYY/MM/YYYY-MM-DD/...`。上传前必须确认仓库属于当前用户、为 private 且可写；public 仓库直接阻止同步。一次 Worker 批量上传尽量通过 Git Data API 生成一个逻辑 commit，避免一个文件一个 commit。
 
-授权前端使用随机 `state`、PKCE 和 `personalrecorder://oauth/github` 回调，仅申请 `repo` scope。GitHub 当前授权码交换接口仍要求 `client_secret`，原生 APK 不安全地保存该值，因此本版本只提供安全 OAuth 占位和 token-exchange 接口；未配置可信交换服务时显示“未配置交换服务”，不会伪造已连接状态。
+授权前端使用随机 `state`、PKCE 和 `personalrecorder://oauth/github` 回调，仅申请 `repo` scope。`repo` 是 OAuth App 的宽权限，覆盖私有仓库读写及相关协作资源，明显大于归档上传所需的最小权限；后续可迁移到 GitHub App，收窄为仓库级 `Contents` 写权限。GitHub 当前授权码交换接口仍要求 `client_secret`，原生 APK 不安全地保存该值，因此本版本只提供安全 OAuth 占位和 token-exchange 接口；未配置可信交换服务时显示“未配置交换服务”，不会伪造已连接状态。
+
+非敏感 GitHub client ID 可通过未提交的 Gradle 属性 `githubClientId` 注入 Debug BuildConfig；不要注入 client secret。完成浏览器授权后仍需要可信服务交换授权码。
 
 ## Google Drive
 

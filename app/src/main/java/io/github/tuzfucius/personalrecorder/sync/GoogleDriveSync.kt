@@ -1,5 +1,14 @@
 package io.github.tuzfucius.personalrecorder.sync
 
+import android.content.Context
+import android.app.Activity
+import android.app.PendingIntent
+import com.google.android.gms.common.api.Scope
+import com.google.android.gms.auth.api.identity.AuthorizationRequest
+import com.google.android.gms.auth.api.identity.Identity
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+
 const val GOOGLE_DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 
 sealed interface GoogleDriveAuthorizationResult {
@@ -16,6 +25,50 @@ interface GoogleDriveAuthorizationClient {
 class GoogleDriveAuthorizationCoordinator(private val client: GoogleDriveAuthorizationClient) {
     suspend fun authorize(): GoogleDriveAuthorizationResult = client.authorize(setOf(GOOGLE_DRIVE_FILE_SCOPE))
 }
+
+/**
+ * Adapter for the current Google Identity AuthorizationClient. When consent is required,
+ * [onResolutionRequired] launches the returned PendingIntent through Activity Result APIs;
+ * the caller should invoke authorization again after the result returns.
+ */
+class PlayServicesGoogleDriveAuthorizationClient(
+    private val activity: Activity,
+    private val onResolutionRequired: (PendingIntent) -> Unit,
+) : GoogleDriveAuthorizationClient {
+    override suspend fun authorize(scopes: Set<String>): GoogleDriveAuthorizationResult =
+        suspendCancellableCoroutine { continuation ->
+            val request = AuthorizationRequest.builder()
+                .setRequestedScopes(scopes.map(::Scope).toMutableList())
+                .build()
+            Identity.getAuthorizationClient(activity)
+                .authorize(request)
+                .addOnSuccessListener { result ->
+                    if (result.hasResolution()) {
+                        val pendingIntent = result.pendingIntent
+                        if (pendingIntent == null) {
+                            continuation.resume(GoogleDriveAuthorizationResult.Failed("Google Drive 授权缺少确认入口"))
+                        } else {
+                            onResolutionRequired(pendingIntent)
+                            continuation.resume(GoogleDriveAuthorizationResult.Denied("需要用户确认 Google Drive 授权"))
+                        }
+                    } else {
+                        val accessToken = result.accessToken
+                        continuation.resume(
+                            if (accessToken == null) {
+                                GoogleDriveAuthorizationResult.Failed("Google Drive 授权未返回 access token")
+                            } else {
+                                GoogleDriveAuthorizationResult.Authorized(accessToken)
+                            }
+                        )
+                    }
+                }
+                .addOnFailureListener { error ->
+                    continuation.resume(
+                        GoogleDriveAuthorizationResult.Failed("Google Drive 授权失败", error)
+                    )
+                }
+        }
+    }
 
 data class GoogleDriveFile(val id: String, val name: String, val sha256: String?)
 data class GoogleDriveUpload(val id: String, val sha256: String)
@@ -34,6 +87,20 @@ interface GoogleDriveFolderIdCache {
     suspend fun get(path: String): String?
     suspend fun put(path: String, folderId: String)
     suspend fun remove(path: String)
+}
+
+class SharedPreferencesGoogleDriveFolderIdCache(context: Context) : GoogleDriveFolderIdCache {
+    private val preferences = context.applicationContext.getSharedPreferences("drive_folder_ids", Context.MODE_PRIVATE)
+
+    override suspend fun get(path: String): String? = preferences.getString(path, null)
+
+    override suspend fun put(path: String, folderId: String) {
+        preferences.edit().putString(path, folderId).apply()
+    }
+
+    override suspend fun remove(path: String) {
+        preferences.edit().remove(path).apply()
+    }
 }
 
 /** 只根据自己的缓存逐层创建目录，不通过全盘检索匹配名称。 */
@@ -70,7 +137,7 @@ class GoogleDriveCloudSyncBackend(
         return try {
         val path = archive.relativePath.split('/').filter { it.isNotBlank() }
         if (path.size < 2) return BackendSyncResult.Failure(SyncError.InvalidArchive("Drive 归档路径缺少父目录"))
-        val parentId = folderResolver.resolveFolder(path.dropLast(1))
+        val parentId = folderResolver.resolveFolder(listOf("PersonalRecorder") + path.dropLast(1))
         val fileName = path.last()
         val existing = restClient.findManagedFile(parentId, fileName)
         when {
