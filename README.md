@@ -10,14 +10,26 @@ Personal Recorder 是一个 Android 本地个人事件采集器。
 - 最近通知查看
 - 通知访问权限状态检测
 - 应用白名单/黑名单筛选
+- 半日 JSONL 本地归档
+- GitHub 私有仓库与 Google Drive 云端同步配置
 
-当前事件和筛选配置只保存在设备本地，数据库与筛选配置不会参与 Android 云备份，也没有网络上传逻辑。
+Room 仍是应用本地实时数据源；JSONL 是长期归档格式。云端同步只上传半日归档文件，不上传 Room 数据库。
+
+## Cloud Sync
+
+支持 GitHub Private Repository、Google Drive，以及两个 backend 同时同步。
+
+Archive 固定为：
+
+- `00-12.jsonl`
+- `12-24.jsonl`
+- 完整日 `manifest.json`
+
+Sync Frequency 支持 Twice Daily、Daily、Weekly。调度由 WorkManager 执行，允许系统延迟但不会跳过已闭合归档。
 
 ## 计划能力
 
 - Android Share Target
-- 日终归档
-- Personal Hub 同步
 - Hermes 集成
 
 ## 使用

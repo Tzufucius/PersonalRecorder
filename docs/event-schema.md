@@ -24,6 +24,10 @@
 
 同一个 notification key 的后续更新会追加为新事件，不进行聊天语义去重。通知移除回调不会产生新事件。
 
+## Archive DTO
+
+归档使用独立的 `ArchivedEvent` DTO，不直接序列化 `EventEntity`。Archive v1 保留当前 `PersonalEvent` 的业务字段和通知元数据，并固定 `schemaVersion`，因此 Room 字段迁移不会自动改变归档协议。
+
 ## 统计口径
 
 - 原始事件：数据库中保存的所有通知事件。
