@@ -37,7 +37,7 @@ class ArchiveWriterTest {
         val now = date.atTime(13, 0).atZone(zone).toInstant().toEpochMilli()
         val result = ArchiveWriter(root, zone).writeDay(date, emptyList<PersonalEvent>(), now)
 
-        assertEquals(listOf(ArchiveHalf.AM), result.segments.map { it.slice.half })
+        assertEquals(listOf(ArchiveSegmentType.FIRST_HALF), result.segments.map { it.slice.half })
         assertEquals(null, result.manifest)
     }
 
@@ -76,8 +76,8 @@ class ArchiveWriterTest {
             nowMillis = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
         )
 
-        val morning = result.segments.first { it.slice.half == ArchiveHalf.AM }.file.readLines()
-        val afternoon = result.segments.first { it.slice.half == ArchiveHalf.PM }.file.readLines()
+        val morning = result.segments.first { it.slice.half == ArchiveSegmentType.FIRST_HALF }.file.readLines()
+        val afternoon = result.segments.first { it.slice.half == ArchiveSegmentType.SECOND_HALF }.file.readLines()
         assertEquals(2, morning.size)
         assertEquals(2, afternoon.size)
         assertTrue(morning[0].contains("\"id\":\"early\""))

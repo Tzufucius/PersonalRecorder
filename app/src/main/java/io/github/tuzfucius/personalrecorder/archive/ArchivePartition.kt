@@ -6,10 +6,20 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
-enum class ArchiveHalf(val fileName: String) {
-    AM("00-12.jsonl"),
-    PM("12-24.jsonl"),
+enum class ArchiveSegmentType(val fileName: String) {
+    FIRST_HALF("00-12.jsonl"),
+    SECOND_HALF("12-24.jsonl"),
+
+    ;
+
+    companion object {
+        /** Compatibility aliases for the original AM/PM names. */
+        val AM: ArchiveSegmentType get() = FIRST_HALF
+        val PM: ArchiveSegmentType get() = SECOND_HALF
+    }
 }
+
+typealias ArchiveHalf = ArchiveSegmentType
 
 data class ArchiveSlice(
     val date: LocalDate,
@@ -45,8 +55,8 @@ object ArchivePartition {
         val noon = date.atTime(12, 0).atZone(zoneId)
         val nextMidnight = date.plusDays(1).atStartOfDay(zoneId)
         return listOf(
-            ArchiveSlice(date, ArchiveHalf.AM, zoneId, midnight, noon),
-            ArchiveSlice(date, ArchiveHalf.PM, zoneId, noon, nextMidnight),
+            ArchiveSlice(date, ArchiveSegmentType.FIRST_HALF, zoneId, midnight, noon),
+            ArchiveSlice(date, ArchiveSegmentType.SECOND_HALF, zoneId, noon, nextMidnight),
         )
     }
 }

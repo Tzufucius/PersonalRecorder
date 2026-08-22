@@ -67,9 +67,9 @@ class ArchiveWriter(
         val now = java.time.Instant.ofEpochMilli(nowMillis).atZone(zoneId)
         val today = now.toLocalDate()
         val closedHalves = when {
-            date.isBefore(today) -> ArchiveHalf.entries.toList()
+            date.isBefore(today) -> ArchiveSegmentType.entries.toList()
             date.isAfter(today) -> emptyList()
-            now.toLocalTime() >= java.time.LocalTime.NOON -> listOf(ArchiveHalf.AM)
+            now.toLocalTime() >= java.time.LocalTime.NOON -> listOf(ArchiveSegmentType.FIRST_HALF)
             else -> emptyList()
         }
         val segments = closedHalves.map { writeSegment(date, it, events) }
@@ -78,7 +78,7 @@ class ArchiveWriter(
     }
 
     fun writeManifestIfComplete(date: LocalDate, segments: List<ArchiveSegmentResult>): File? {
-        val expected = ArchiveHalf.entries.map { it.fileName }
+        val expected = ArchiveSegmentType.entries.map { it.fileName }
         if (segments.map { it.slice.half.fileName }.toSet() != expected.toSet()) return null
         val directory = segments.first().file.parentFile ?: return null
         val manifest = File(directory, "manifest.json")

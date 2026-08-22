@@ -15,8 +15,8 @@ class ArchivePartitionTest {
         val morning = date.atTime(11, 59).atZone(zone).toInstant().toEpochMilli()
         val afternoon = date.atTime(12, 0).atZone(zone).toInstant().toEpochMilli()
 
-        assertEquals(ArchiveHalf.AM, ArchivePartition.sliceForTimestamp(morning, zone).half)
-        assertEquals(ArchiveHalf.PM, ArchivePartition.sliceForTimestamp(afternoon, zone).half)
+        assertEquals(ArchiveSegmentType.FIRST_HALF, ArchivePartition.sliceForTimestamp(morning, zone).half)
+        assertEquals(ArchiveSegmentType.SECOND_HALF, ArchivePartition.sliceForTimestamp(afternoon, zone).half)
     }
 
     @Test
