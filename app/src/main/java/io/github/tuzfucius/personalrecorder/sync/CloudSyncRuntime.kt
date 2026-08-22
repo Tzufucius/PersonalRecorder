@@ -166,19 +166,40 @@ object CloudSyncRuntime {
     @Volatile
     private var runner: ArchiveSyncRunner? = null
 
-    fun configure(context: Context, backends: Collection<CloudSyncBackend> = emptyList()) {
+    fun configure(context: Context, backends: Collection<CloudSyncBackend> = defaultBackends(context)) {
         val configured = ArchiveSyncRunner(context, backends)
         runner = configured
         CloudSyncWorker.configure(configured)
     }
 
-    suspend fun syncNow(context: Context): SyncBatchResult {
-        val current = runner ?: ArchiveSyncRunner(context).also {
+    fun ensureConfigured(context: Context): ArchiveSyncRunner = synchronized(this) {
+        runner ?: ArchiveSyncRunner(context, defaultBackends(context)).also {
             runner = it
             CloudSyncWorker.configure(it)
         }
-        return current.runSync()
+    }
+
+    suspend fun syncNow(context: Context): SyncBatchResult {
+        return ensureConfigured(context).runSync()
     }
 
     fun scheduler(context: Context): SyncScheduler = WorkManagerSyncScheduler(context)
+
+    private fun defaultBackends(context: Context): List<CloudSyncBackend> {
+        val secrets = SecureSecretStore(context)
+        val driveClient = OkHttpGoogleDriveRestClient(
+            tokenProvider = AccessTokenProvider {
+                secrets.get(CloudCredentialStore.GOOGLE_ACCESS_TOKEN)
+            }
+        )
+        return listOf(
+            GoogleDriveCloudSyncBackend(
+                restClient = driveClient,
+                folderResolver = GoogleDriveFolderResolver(
+                    restClient = driveClient,
+                    cache = SharedPreferencesGoogleDriveFolderIdCache(context)
+                )
+            )
+        )
+    }
 }

@@ -24,7 +24,7 @@ class CloudSyncWorker(
     workerParams: WorkerParameters
 ) : CoroutineWorker(appContext, workerParams) {
     override suspend fun doWork(): Result {
-        val syncRunner = runner ?: return Result.retry()
+        val syncRunner = runner ?: CloudSyncRuntime.ensureConfigured(applicationContext)
         return runCatching { syncRunner.runSync() }
             .fold(
                 onSuccess = { result -> if (result.needsRetry) Result.retry() else Result.success() },
