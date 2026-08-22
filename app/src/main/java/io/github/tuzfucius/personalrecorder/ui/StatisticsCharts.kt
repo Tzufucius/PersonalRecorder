@@ -47,6 +47,10 @@ fun HourlyChart(
     selectedHour: Int?,
     onHourClick: (Int) -> Unit
 ) {
+    if (values.isEmpty()) {
+        Text("暂无小时数据", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
     val producer = remember { CartesianChartModelProducer() }
     LaunchedEffect(values) {
         producer.runTransaction {
@@ -82,6 +86,10 @@ fun HourlyChart(
 
 @Composable
 fun DailyTrendChart(values: List<DailyCount>) {
+    if (values.isEmpty()) {
+        Text("暂无每日数据", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
     val producer = remember { CartesianChartModelProducer() }
     LaunchedEffect(values) {
         producer.runTransaction {
