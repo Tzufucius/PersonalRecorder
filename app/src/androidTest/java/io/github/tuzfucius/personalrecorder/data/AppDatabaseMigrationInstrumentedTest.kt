@@ -30,7 +30,7 @@ class AppDatabaseMigrationInstrumentedTest {
                 "INSERT INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 arrayOf(
                     "old", 1_000L, "notification", "source.app", "title", "content", null,
-                    "", "key", 1, null, null, null, 0, 1_000L
+                    "", "key", 1, null, null, null, 0, 1, 1_000L
                 )
             )
             close()
