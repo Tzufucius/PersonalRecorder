@@ -4,7 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import io.github.tuzfucius.personalrecorder.ui.DashboardScreen
+import io.github.tuzfucius.personalrecorder.ui.PersonalRecorderApp
 import io.github.tuzfucius.personalrecorder.ui.theme.PersonalRecorderTheme
 
 class MainActivity : ComponentActivity() {
@@ -13,7 +13,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             PersonalRecorderTheme {
-                DashboardScreen()
+                PersonalRecorderApp()
             }
         }
     }
