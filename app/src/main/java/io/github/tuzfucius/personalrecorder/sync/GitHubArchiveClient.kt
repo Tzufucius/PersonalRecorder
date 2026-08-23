@@ -1,6 +1,8 @@
 package io.github.tuzfucius.personalrecorder.sync
 
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -126,14 +128,14 @@ class GitHubArchiveClient(
         return GitHubContent(path = path, sha = sha, content = decoded)
     }
 
-    private suspend fun executeJson(operation: String, request: Request): JsonObject {
+    private suspend fun executeJson(operation: String, request: Request): JsonObject = withContext(Dispatchers.IO) {
         val token = tokenProvider.accessToken()?.trim()
         if (token.isNullOrBlank()) throw SyncHttpException(401, "GitHub access token is missing")
         val authorized = request.newBuilder()
             .header("Authorization", "Bearer $token")
             .build()
         logDebug(operation)
-        httpClient.newCall(authorized).execute().use { response ->
+        return@withContext httpClient.newCall(authorized).execute().use { response ->
             val body = response.body?.string().orEmpty()
             logDebug("$operation: HTTP ${response.code}")
             if (!response.isSuccessful) {
@@ -144,7 +146,7 @@ class GitHubArchiveClient(
                         (response.code == 403 && response.header("X-RateLimit-Remaining") == "0"),
                 )
             }
-            return if (body.isBlank()) buildJsonObject { } else json.parseToJsonElement(body).jsonObject
+            if (body.isBlank()) buildJsonObject { } else json.parseToJsonElement(body).jsonObject
         }
     }
 

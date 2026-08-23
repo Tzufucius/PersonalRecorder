@@ -9,6 +9,7 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -19,9 +20,22 @@ class GitHubArchiveClientTest {
     fun authenticatedUserUsesBearerTokenWithoutExposingItInErrors() = runBlocking {
         val fake = FakeHttp(listOf(ResponseSpec(200, "{\"login\":\"alice\"}")))
         val client = client(fake)
+        val callerThread = Thread.currentThread()
 
         assertEquals("alice", client.authenticatedLogin())
         assertEquals("Bearer test-token", fake.requests.single().header("Authorization"))
+        assertNotEquals(callerThread, fake.requestThreads.single())
+    }
+
+    @Test
+    fun accessTokenIsNotIncludedInHttpErrors() = runBlocking {
+        val fake = FakeHttp(listOf(ResponseSpec(500, "{\"message\":\"failed\"}")))
+
+        val error = runCatching { client(fake).authenticatedLogin() }.exceptionOrNull()
+
+        assertTrue(error is SyncHttpException)
+        assertTrue(error?.message.orEmpty().contains("GitHub HTTP 500"))
+        assertTrue(!error?.message.orEmpty().contains("test-token"))
     }
 
     @Test
@@ -89,10 +103,12 @@ class GitHubArchiveClientTest {
 
     private class FakeHttp(private val responses: List<ResponseSpec>) : Interceptor {
         val requests = mutableListOf<okhttp3.Request>()
+        val requestThreads = mutableListOf<Thread>()
         private var index = 0
 
         override fun intercept(chain: Interceptor.Chain): Response {
             requests += chain.request()
+            requestThreads += Thread.currentThread()
             val spec = responses[index++]
             return Response.Builder()
                 .request(chain.request())
