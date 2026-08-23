@@ -211,6 +211,7 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel? = null) {
                             when (state) {
                                 androidx.work.WorkInfo.State.RUNNING -> "同步中…"
                                 androidx.work.WorkInfo.State.ENQUEUED -> "等待网络"
+                                androidx.work.WorkInfo.State.SUCCEEDED -> "同步检查完成"
                                 else -> "立即同步"
                             }
                         )
