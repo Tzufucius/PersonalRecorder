@@ -49,7 +49,7 @@ class ArchiveReconcileService(
 
     suspend fun discoverRemote(mode: ReconcileMode = ReconcileMode.FULL_RESTORE): RemoteArchiveInventory? {
         val repository = repositoryProvider() ?: return null
-        val localDates = localScanner.scan().descriptors.map { it.date }.toSet()
+        val localDates = incrementalLocalDates(mode)
         return RemoteArchiveInventoryScanner(
             api = api,
             repository = repository,
@@ -128,7 +128,7 @@ class ArchiveReconcileService(
         }
 
         val localInventory = localScanner.scan()
-        val localDates = localInventory.descriptors.map { it.date }.toSet()
+        val localDates = incrementalLocalDates(mode)
         val remoteRaw = RemoteArchiveInventoryScanner(
             api = api,
             repository = repository,
@@ -258,6 +258,16 @@ class ArchiveReconcileService(
             results = results,
         )
     }
+
+    private suspend fun incrementalLocalDates(mode: ReconcileMode): Set<String> =
+        if (mode == ReconcileMode.FULL_RESTORE) {
+            emptySet()
+        } else {
+            database.eventDao()
+                .getPendingArchiveSegmentsForSync(CloudBackendType.GITHUB.name, includeFailed = false)
+                .map { it.date }
+                .toSet()
+        }
 
     private suspend fun reconcileManifests(
         repository: GitHubRepository,
