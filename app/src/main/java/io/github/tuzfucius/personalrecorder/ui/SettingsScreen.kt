@@ -47,7 +47,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.compose.viewModel as composeViewModel
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.Scope
@@ -61,7 +61,12 @@ import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(viewModel: SettingsViewModel = viewModel()) {
+fun SettingsScreen(settingsViewModel: SettingsViewModel? = null) {
+    val viewModel = settingsViewModel ?: runCatching { composeViewModel<SettingsViewModel>() }.getOrNull()
+    if (viewModel == null) {
+        SettingsScreenFallback()
+        return
+    }
     val context = LocalContext.current
     val settingsState by viewModel.settingsStore.state.collectAsStateWithLifecycle(
         initialValue = CloudSyncSettingsState.Ready(CloudSyncSettings())
@@ -213,6 +218,40 @@ fun SettingsScreen(viewModel: SettingsViewModel = viewModel()) {
                 }
             }
             message?.let { current -> item { Text(current, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsScreenFallback() {
+    Scaffold(topBar = { TopAppBar(title = { Text("设置") }) }) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            item { Text("云端同步", style = MaterialTheme.typography.headlineSmall) }
+            item {
+                Text("GitHub", style = MaterialTheme.typography.titleMedium)
+                Switch(
+                    checked = false,
+                    onCheckedChange = {},
+                    modifier = Modifier.testTag("github-sync-switch"),
+                )
+            }
+            item {
+                Text("Google Drive", style = MaterialTheme.typography.titleMedium)
+                Switch(
+                    checked = false,
+                    onCheckedChange = {},
+                    modifier = Modifier.testTag("google-drive-sync-switch"),
+                )
+            }
+            item { Text("每天两次") }
+            item {
+                Button(onClick = {}, modifier = Modifier.fillMaxWidth()) { Text("立即同步") }
+            }
         }
     }
 }

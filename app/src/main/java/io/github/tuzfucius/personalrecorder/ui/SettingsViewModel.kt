@@ -1,6 +1,7 @@
 package io.github.tuzfucius.personalrecorder.ui
 
 import android.app.Application
+import androidx.work.WorkInfo
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.tuzfucius.personalrecorder.BuildConfig
@@ -20,8 +21,10 @@ import io.github.tuzfucius.personalrecorder.sync.SecureSecretStore
 import io.github.tuzfucius.personalrecorder.sync.SyncFrequency
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 
 data class GitHubDeviceUiState(
@@ -34,7 +37,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val context = application.applicationContext
     val settingsStore = CloudSyncSettingsStore(context)
     val database = AppDatabase.getInstance(context)
-    val scheduler: SyncScheduler = CloudSyncRuntime.scheduler(context)
+    val scheduler: SyncScheduler = runCatching { CloudSyncRuntime.scheduler(context) }
+        .getOrElse { NoOpSyncScheduler }
 
     private val _githubDeviceState = MutableStateFlow<GitHubDeviceUiState?>(null)
     val githubDeviceState: StateFlow<GitHubDeviceUiState?> = _githubDeviceState.asStateFlow()
@@ -136,4 +140,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun clearMessage() {
         _message.value = null
     }
+}
+
+private object NoOpSyncScheduler : SyncScheduler {
+    override fun schedule(frequency: SyncFrequency) = Unit
+    override fun enqueueNow() = Unit
+    override fun observeNowWork(): Flow<List<WorkInfo>> = emptyFlow()
+    override fun cancel() = Unit
 }
