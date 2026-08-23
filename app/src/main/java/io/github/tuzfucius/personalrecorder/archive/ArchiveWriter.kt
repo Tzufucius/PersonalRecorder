@@ -72,7 +72,11 @@ class ArchiveWriter(
             now.toLocalTime() >= java.time.LocalTime.NOON -> listOf(ArchiveSegmentType.FIRST_HALF)
             else -> emptyList()
         }
-        val segments = closedHalves.map { writeSegment(date, it, events) }
+        val segments = ArchiveSegmentType.entries
+            .filter { half ->
+                half in closedHalves || segmentFile(date, half).isFile
+            }
+            .map { writeSegment(date, it, events) }
         val manifest = writeManifestIfComplete(date, segments)
         return ArchiveDayResult(date, segments, manifest)
     }
@@ -84,6 +88,7 @@ class ArchiveWriter(
         val manifest = File(directory, "manifest.json")
         if (!manifest.exists()) {
             val body = ArchiveManifest(
+                schemaVersion = 1,
                 date = date.toString(),
                 timeZone = zoneId.id,
                 segments = segments.sortedBy { it.slice.startMillis }.map {
@@ -95,6 +100,9 @@ class ArchiveWriter(
         }
         return manifest
     }
+
+    private fun segmentFile(date: LocalDate, half: ArchiveSegmentType): File =
+        File(archiveRoot, "${date.format(java.time.format.DateTimeFormatter.ofPattern("yyyy/MM"))}/$date/${half.fileName}")
 
     private fun countLines(file: File): Int = file.useLines { lines -> lines.count() }
 
