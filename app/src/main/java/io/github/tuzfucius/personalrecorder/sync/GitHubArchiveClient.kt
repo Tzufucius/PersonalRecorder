@@ -5,9 +5,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -149,6 +152,58 @@ class GitHubArchiveClient(
             if (body.isBlank()) buildJsonObject { } else json.parseToJsonElement(body).jsonObject
         }
     }
+
+    private suspend fun executeJsonElement(operation: String, request: Request): JsonElement = withContext(Dispatchers.IO) {
+        val token = tokenProvider.accessToken()?.trim()
+        if (token.isNullOrBlank()) throw SyncHttpException(401, "GitHub access token is missing")
+        val authorized = request.newBuilder()
+            .header("Authorization", "Bearer $token")
+            .build()
+        logDebug(operation)
+        return@withContext httpClient.newCall(authorized).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            logDebug("$operation: HTTP ${response.code}")
+            if (!response.isSuccessful) {
+                throw SyncHttpException(
+                    statusCode = response.code,
+                    message = "GitHub HTTP ${response.code}",
+                    rateLimited = response.code == 429 ||
+                        (response.code == 403 && response.header("X-RateLimit-Remaining") == "0"),
+                )
+            }
+            if (body.isBlank()) buildJsonObject { } else json.parseToJsonElement(body)
+        }
+    }
+
+    override suspend fun listDirectory(
+        repository: GitHubRepository,
+        path: String,
+    ): List<GitHubDirectoryEntry> {
+        return try {
+            val body = executeJsonElement(
+                "发现远端目录: $path",
+                authorizedRequest(contentUrl(repository, path)).get().build(),
+            )
+            val entries = body as? JsonArray
+                ?: throw SyncHttpException(422, "GitHub 目录响应不是数组")
+            entries.map { element ->
+                val objectBody = element.jsonObject
+                GitHubDirectoryEntry(
+                    path = objectBody["path"]?.jsonPrimitive?.content
+                        ?: throw SyncHttpException(422, "GitHub 目录响应缺少 path"),
+                    type = objectBody["type"]?.jsonPrimitive?.content
+                        ?: throw SyncHttpException(422, "GitHub 目录响应缺少 type"),
+                    sha = objectBody["sha"]?.jsonPrimitive?.content,
+                    size = objectBody["size"]?.jsonPrimitive?.longOrNull ?: 0L,
+                )
+            }
+        } catch (error: SyncHttpException) {
+            if (error.statusCode == 404) emptyList() else throw error
+        }
+    }
+
+    override suspend fun downloadContent(repository: GitHubRepository, path: String): GitHubContent? =
+        getContent(repository, path)
 
     private fun authorizedRequest(url: String): Request.Builder = Request.Builder()
         .url(url)

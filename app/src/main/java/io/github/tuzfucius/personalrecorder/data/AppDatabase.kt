@@ -9,8 +9,8 @@ import androidx.room.TypeConverters
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [EventEntity::class, ArchiveSegmentEntity::class, ArchiveSyncStateEntity::class],
-    version = 3,
+    entities = [EventEntity::class, ArchiveSegmentEntity::class, ArchiveSyncStateEntity::class, ArchiveConflictEntity::class],
+    version = 4,
     exportSchema = true,
 )
 @TypeConverters(StringListConverter::class)
@@ -26,7 +26,7 @@ abstract class AppDatabase : RoomDatabase() {
                 context.applicationContext,
                 AppDatabase::class.java,
                 "personal_recorder.db"
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
         }
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -71,6 +71,26 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_archive_sync_states_status ON archive_sync_states(status)")
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_archive_sync_states_backend_status ON archive_sync_states(backend, status)")
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """CREATE TABLE IF NOT EXISTS archive_conflicts (
+                        conflictId TEXT NOT NULL,
+                        segmentId TEXT NOT NULL,
+                        relativePath TEXT NOT NULL,
+                        localFilePath TEXT NOT NULL,
+                        remoteFilePath TEXT NOT NULL,
+                        summary TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        resolved INTEGER NOT NULL,
+                        PRIMARY KEY(conflictId)
+                    )""".trimIndent()
+                )
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_archive_conflicts_segmentId ON archive_conflicts(segmentId)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_archive_conflicts_resolved ON archive_conflicts(resolved)")
             }
         }
     }

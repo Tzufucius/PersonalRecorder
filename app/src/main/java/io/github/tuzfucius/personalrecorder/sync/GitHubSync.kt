@@ -29,12 +29,29 @@ data class GitHubContent(
     val content: ByteArray? = null,
 )
 
+data class GitHubDirectoryEntry(
+    val path: String,
+    val type: String,
+    val sha: String? = null,
+    val size: Long = 0L,
+)
+
 /** GitHub API 的最小业务边界，连接和归档上传共用同一客户端。 */
 interface GitHubArchiveApi {
     suspend fun authenticatedLogin(): String
     suspend fun findRepository(repository: GitHubRepository): GitHubRepositoryDetails?
     suspend fun createPrivateRepository(name: String): GitHubRepositoryDetails
     suspend fun getContent(repository: GitHubRepository, path: String): GitHubContent?
+
+    suspend fun listDirectory(
+        repository: GitHubRepository,
+        path: String,
+    ): List<GitHubDirectoryEntry> = emptyList()
+
+    suspend fun downloadContent(
+        repository: GitHubRepository,
+        path: String,
+    ): GitHubContent? = getContent(repository, path)
     suspend fun putContent(
         repository: GitHubRepository,
         path: String,

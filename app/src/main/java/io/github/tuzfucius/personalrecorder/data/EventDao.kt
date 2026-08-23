@@ -24,6 +24,9 @@ interface EventDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertEvent(event: EventEntity)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertEventsIgnore(events: List<EventEntity>): List<Long>
+
     @Query("SELECT * FROM events ORDER BY timestamp DESC LIMIT :limit")
     fun getRecentEvents(limit: Int = 30): Flow<List<EventEntity>>
 
@@ -84,6 +87,15 @@ interface EventDao {
 
     @Upsert
     suspend fun upsertArchiveSyncState(state: ArchiveSyncStateEntity)
+
+    @Upsert
+    suspend fun upsertArchiveConflict(conflict: ArchiveConflictEntity)
+
+    @Query("SELECT COUNT(*) FROM archive_conflicts WHERE resolved = 0")
+    fun getUnresolvedConflictCount(): Flow<Int>
+
+    @Query("SELECT * FROM archive_conflicts WHERE resolved = 0 ORDER BY createdAt DESC")
+    fun getUnresolvedConflicts(): Flow<List<ArchiveConflictEntity>>
 
     @Query(
         "SELECT * FROM archive_sync_states WHERE segmentId = :segmentId AND backend = :backend LIMIT 1"
