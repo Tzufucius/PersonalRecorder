@@ -14,7 +14,6 @@ import kotlinx.coroutines.CancellationException
 import java.io.File
 import java.time.LocalDate
 import java.time.ZoneId
-import java.util.UUID
 
 data class ReconcileReport(
     val mode: ReconcileMode,
@@ -30,7 +29,7 @@ data class ReconcileReport(
         get() = results.any { it.error?.retryable == true }
 
     val isSuccessful: Boolean
-        get() = results.none { it.error != null && !it.error.retryable }
+        get() = results.all { it.error == null && it.isSuccessful }
 }
 
 /** Coordinates pull-before-push reconciliation for the GitHub archive hub. */
@@ -168,7 +167,15 @@ class ArchiveReconcileService(
             when (pair.state) {
                 ArchivePairState.LOCAL_ONLY -> {
                     val bytes = requireNotNull(localBytes)
-                    val result = upload(repository, local, bytes, null)
+                    val result = try {
+                        reconciler.parseJsonl(bytes)
+                        upload(repository, local, bytes, null)
+                    } catch (error: SyncHttpException) {
+                        if (error.statusCode == 409) throw error
+                        failedResult(local, error.toSyncError())
+                    } catch (error: IllegalArgumentException) {
+                        failedResult(local, SyncError.InvalidArchive("本地 JSONL 校验失败: ${local.relativePath}"))
+                    }
                     persistState(local.segmentId, result)
                     results += result
                     if (result.isSuccessful) uploaded++
@@ -381,7 +388,8 @@ class ArchiveReconcileService(
         remoteBytes: ByteArray,
         count: Int,
     ) {
-        val conflictId = "${descriptor.segmentId}-${UUID.randomUUID()}"
+        val conflictHash = ArchiveFileStore.sha256(localBytes + remoteBytes)
+        val conflictId = "${descriptor.segmentId}-${conflictHash.take(16)}"
         val localPath = "archive_conflicts/${descriptor.segmentId}/local.jsonl"
         val remotePath = "archive_conflicts/${descriptor.segmentId}/remote.jsonl"
         ArchiveFileStore.atomicWrite(filesDir, localPath, localBytes)
