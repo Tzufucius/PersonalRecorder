@@ -9,13 +9,20 @@ import androidx.room.TypeConverters
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [EventEntity::class, ArchiveSegmentEntity::class, ArchiveSyncStateEntity::class, ArchiveConflictEntity::class],
-    version = 5,
+    entities = [
+        EventEntity::class,
+        ArchiveSegmentEntity::class,
+        ArchiveSyncStateEntity::class,
+        ArchiveConflictEntity::class,
+        NotificationSourceEntity::class,
+    ],
+    version = 6,
     exportSchema = true,
 )
 @TypeConverters(StringListConverter::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun eventDao(): EventDao
+    abstract fun notificationSourceDao(): NotificationSourceDao
 
     companion object {
         @Volatile
@@ -26,7 +33,13 @@ abstract class AppDatabase : RoomDatabase() {
                 context.applicationContext,
                 AppDatabase::class.java,
                 "personal_recorder.db"
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
+            ).addMigrations(
+                MIGRATION_1_2,
+                MIGRATION_2_3,
+                MIGRATION_3_4,
+                MIGRATION_4_5,
+                MIGRATION_5_6,
+            ).build().also { instance = it }
         }
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -98,6 +111,41 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL(
                     "ALTER TABLE archive_segments ADD COLUMN verificationStatus TEXT NOT NULL DEFAULT 'VERIFIED'"
+                )
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """CREATE TABLE IF NOT EXISTS notification_sources (
+                        packageName TEXT NOT NULL,
+                        lastKnownLabel TEXT,
+                        firstSeenAt INTEGER NOT NULL,
+                        lastSeenAt INTEGER NOT NULL,
+                        observedNotificationCount INTEGER NOT NULL,
+                        lastKnownHasLauncher INTEGER,
+                        PRIMARY KEY(packageName)
+                    )""".trimIndent()
+                )
+                database.execSQL(
+                    """INSERT OR IGNORE INTO notification_sources(
+                        packageName,
+                        lastKnownLabel,
+                        firstSeenAt,
+                        lastSeenAt,
+                        observedNotificationCount,
+                        lastKnownHasLauncher
+                    )
+                    SELECT
+                        packageName,
+                        NULL,
+                        MIN(timestamp),
+                        MAX(timestamp),
+                        COUNT(*),
+                        NULL
+                    FROM events
+                    GROUP BY packageName""".trimIndent()
                 )
             }
         }

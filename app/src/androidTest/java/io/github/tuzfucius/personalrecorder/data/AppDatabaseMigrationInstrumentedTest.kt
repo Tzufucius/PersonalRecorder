@@ -7,6 +7,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -103,6 +104,63 @@ class AppDatabaseMigrationInstrumentedTest {
         ).use { cursor ->
             assertEquals(true, cursor.moveToFirst())
             assertEquals("VERIFIED", cursor.getString(0))
+        }
+    }
+
+    @Test
+    fun migrate5To6BackfillsSourcesWithoutDroppingEvents() {
+        helper.createDatabase("migration-test-v5-sources.db", 5).apply {
+            repeat(3) { index ->
+                execSQL(
+                    "INSERT INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    arrayOf(
+                        "a-$index", (100L + index * 100L), "notification", "source.a", null, null, null,
+                        "", "key-a-$index", index, null, null, null, 0, 0, 1, (100L + index * 100L),
+                    )
+                )
+            }
+            repeat(2) { index ->
+                execSQL(
+                    "INSERT INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    arrayOf(
+                        "b-$index", (150L + index * 100L), "notification", "source.b", null, null, null,
+                        "", "key-b-$index", index, null, null, null, 0, 0, 1, (150L + index * 100L),
+                    )
+                )
+            }
+            close()
+        }
+
+        helper.runMigrationsAndValidate(
+            "migration-test-v5-sources.db",
+            6,
+            true,
+            AppDatabase.MIGRATION_5_6,
+        ).apply {
+            query("SELECT packageName, firstSeenAt, lastSeenAt, observedNotificationCount FROM notification_sources ORDER BY packageName")
+                .use { cursor ->
+                    assertTrue(cursor.moveToFirst())
+                    assertEquals("source.a", cursor.getString(0))
+                    assertEquals(100L, cursor.getLong(1))
+                    assertEquals(300L, cursor.getLong(2))
+                    assertEquals(3L, cursor.getLong(3))
+                    assertTrue(cursor.moveToNext())
+                    assertEquals("source.b", cursor.getString(0))
+                    assertEquals(150L, cursor.getLong(1))
+                    assertEquals(250L, cursor.getLong(2))
+                    assertEquals(2L, cursor.getLong(3))
+                }
+            query("SELECT COUNT(*) FROM events").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(5, cursor.getInt(0))
+            }
+            query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('archive_segments', 'archive_sync_states', 'archive_conflicts')")
+                .use { cursor ->
+                    var count = 0
+                    while (cursor.moveToNext()) count++
+                    assertEquals(3, count)
+                }
+            close()
         }
     }
 
