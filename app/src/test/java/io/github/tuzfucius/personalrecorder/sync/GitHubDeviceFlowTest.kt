@@ -3,6 +3,11 @@ package io.github.tuzfucius.personalrecorder.sync
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import okhttp3.Interceptor
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -52,6 +57,35 @@ class GitHubDeviceFlowTest {
         assertTrue(parseGitHubDevicePoll(Json.parseToJsonElement("""{"error":"expired_token"}""").jsonObject) is GitHubDevicePollResult.Expired)
         assertTrue(parseGitHubDevicePoll(Json.parseToJsonElement("""{"error":"access_denied"}""").jsonObject) is GitHubDevicePollResult.AccessDenied)
         assertTrue(parseGitHubDevicePoll(Json.parseToJsonElement("""{"error":"device_flow_disabled"}""").jsonObject) is GitHubDevicePollResult.Failed)
+    }
+
+    @Test
+    fun deviceCodeUsesPublicOfficialEndpointWithoutReadingToken() = runBlocking {
+        var requestedUrl = ""
+        var authorizationHeader: String? = null
+        val client = OkHttpClient.Builder().addInterceptor(Interceptor { chain ->
+            requestedUrl = chain.request().url.toString()
+            authorizationHeader = chain.request().header("Authorization")
+            Response.Builder()
+                .request(chain.request())
+                .protocol(Protocol.HTTP_1_1)
+                .code(200)
+                .message("OK")
+                .body(
+                    """{"device_code":"device","user_code":"ABCD-EFGH","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5}"""
+                        .toResponseBody()
+                )
+                .build()
+        }).build()
+        val api = OkHttpGitHubApi(
+            tokenProvider = GitHubAccessTokenProvider { error("device flow must not read a token") },
+            httpClient = client,
+        )
+
+        api.requestDeviceCode("client", "repo")
+
+        assertEquals("https://github.com/login/device/code", requestedUrl)
+        assertEquals(null, authorizationHeader)
     }
 
     private class FakeDeviceApi(private val responses: MutableList<GitHubDevicePollResult>) : GitHubDeviceFlowApi {
