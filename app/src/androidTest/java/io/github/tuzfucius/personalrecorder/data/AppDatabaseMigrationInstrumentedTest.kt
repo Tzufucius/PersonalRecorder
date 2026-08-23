@@ -64,6 +64,25 @@ class AppDatabaseMigrationInstrumentedTest {
         }
     }
 
+    @Test
+    fun migrate3To4CreatesConflictTableWithoutDroppingArchiveTables() {
+        helper.createDatabase("migration-test-v3.db", 3).close()
+
+        helper.runMigrationsAndValidate(
+            "migration-test-v3.db",
+            4,
+            true,
+            AppDatabase.MIGRATION_3_4,
+        ).query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('archive_segments', 'archive_sync_states', 'archive_conflicts') ORDER BY name"
+        ).use { cursor ->
+            val names = buildList {
+                while (cursor.moveToNext()) add(cursor.getString(0))
+            }
+            assertEquals(listOf("archive_conflicts", "archive_segments", "archive_sync_states"), names)
+        }
+    }
+
     private companion object {
         const val DATABASE_NAME = "migration-test.db"
     }

@@ -58,6 +58,11 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.tuzfucius.personalrecorder.data.AppDatabase
 import io.github.tuzfucius.personalrecorder.data.PersonalEvent
+import io.github.tuzfucius.personalrecorder.background.BackgroundRuntimeState
+import io.github.tuzfucius.personalrecorder.background.BackgroundRuntimeStateStore
+import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettings
+import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsState
+import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsStore
 import io.github.tuzfucius.personalrecorder.settings.FilterMode
 import io.github.tuzfucius.personalrecorder.settings.FilterSettings
 import io.github.tuzfucius.personalrecorder.settings.FilterSettingsState
@@ -71,8 +76,10 @@ private enum class AppPage { RECORDS, STATISTICS, SETTINGS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PersonalRecorderApp() {
-    var page by rememberSaveable { mutableStateOf(AppPage.STATISTICS) }
+fun PersonalRecorderApp(openSettings: Boolean = false) {
+    var page by rememberSaveable(openSettings) {
+        mutableStateOf(if (openSettings) AppPage.SETTINGS else AppPage.STATISTICS)
+    }
     var showFilterSettings by rememberSaveable { mutableStateOf(false) }
 
     if (showFilterSettings) {
@@ -141,6 +148,11 @@ fun DashboardScreen() {
     val lifecycleOwner = LocalLifecycleOwner.current
     val dao = remember { AppDatabase.getInstance(context).eventDao() }
     val filterStore = remember { FilterSettingsStore(context) }
+    val runtimeState by remember { BackgroundRuntimeStateStore(context).state }
+        .collectAsStateWithLifecycle(initialValue = BackgroundRuntimeState())
+    val cloudState by remember { CloudSyncSettingsStore(context).state }
+        .collectAsStateWithLifecycle(initialValue = CloudSyncSettingsState.Ready(CloudSyncSettings()))
+    val cloudSettings = (cloudState as? CloudSyncSettingsState.Ready)?.settings ?: CloudSyncSettings()
     var hasNotificationAccess by remember {
         mutableStateOf(NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName))
     }
@@ -176,6 +188,7 @@ fun DashboardScreen() {
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        item { RuntimeStatusCard(runtimeState, cloudSettings.githubConnected) }
         item {
             PermissionCard(
                 enabled = hasNotificationAccess,

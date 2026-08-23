@@ -94,6 +94,24 @@ class GitHubArchiveClientTest {
         assertTrue(body.contains("\"sha\":\"old-sha\""))
     }
 
+    @Test
+    fun directoryEntriesAreDiscoveredWithoutTreatingDirectoryAsFile() = runBlocking {
+        val fake = FakeHttp(
+            listOf(
+                ResponseSpec(
+                    200,
+                    """[{"path":"archive/2026/08","type":"dir","sha":"tree"},{"path":"archive/2026/08/manifest.json","type":"file","sha":"blob","size":12}]""",
+                )
+            )
+        )
+
+        val entries = client(fake).listDirectory(GitHubRepository("alice", "archive"), "archive")
+
+        assertEquals(2, entries.size)
+        assertEquals("dir", entries.first().type)
+        assertEquals(12L, entries.last().size)
+    }
+
     private fun client(fake: FakeHttp) = GitHubArchiveClient(
         tokenProvider = GitHubAccessTokenProvider { "test-token" },
         httpClient = OkHttpClient.Builder().addInterceptor(fake).build(),

@@ -1,5 +1,12 @@
 package io.github.tuzfucius.personalrecorder.ui
 
+import android.Manifest
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -17,6 +24,7 @@ import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -48,6 +56,7 @@ import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsState
 import io.github.tuzfucius.personalrecorder.sync.CloudBackendType
 import io.github.tuzfucius.personalrecorder.sync.GitHubRepository
 import io.github.tuzfucius.personalrecorder.sync.SyncFrequency
+import io.github.tuzfucius.personalrecorder.background.BackgroundRuntimeState
 import java.text.DateFormat
 import java.util.Date
 
@@ -70,8 +79,19 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel? = null) {
     val lastSync by remember(dao) { dao.getLastSyncedAt(CloudBackendType.GITHUB.name) }
         .collectAsStateWithLifecycle(initialValue = null)
     val workInfos by viewModel.scheduler.observeNowWork().collectAsStateWithLifecycle(initialValue = emptyList())
+    val runtimeState by viewModel.runtimeStateStore.state.collectAsStateWithLifecycle(initialValue = BackgroundRuntimeState())
+    val statusNotificationEnabled by viewModel.backgroundSettingsStore.statusNotificationEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val conflictCount by remember(dao) { dao.getUnresolvedConflictCount() }
+        .collectAsStateWithLifecycle(initialValue = 0)
     val connecting by viewModel.connecting.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val restoreState by viewModel.restoreState.collectAsStateWithLifecycle()
+    val restorePrompt by viewModel.restorePrompt.collectAsStateWithLifecycle()
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) viewModel.setStatusNotificationEnabled(true)
+    }
     var token by remember { mutableStateOf("") }
     var repository by remember(settings?.githubRepository) {
         mutableStateOf(settings?.githubRepository ?: GitHubRepository.DEFAULT_NAME)
@@ -114,7 +134,27 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel? = null) {
                         onConnect = { viewModel.connectGithub(token, repository) },
                         onDisconnect = viewModel::disconnectGithub,
                         onSync = viewModel::enqueueNow,
+                        onValidate = viewModel::validateCloud,
+                        onRestore = viewModel::restoreFromGithub,
                     )
+            }
+            item {
+                RestoreProgressCard(restoreState)
+            }
+            item {
+                BackgroundDiagnosticsCard(
+                    runtimeState = runtimeState,
+                    githubConnected = currentSettings.githubConnected,
+                    statusNotificationEnabled = statusNotificationEnabled,
+                    onStatusNotificationChange = { enabled ->
+                        if (enabled && Build.VERSION.SDK_INT >= 33) {
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            viewModel.setStatusNotificationEnabled(enabled)
+                        }
+                    },
+                    onSync = viewModel::enqueueNow,
+                )
             }
             item { FrequencyCard(currentSettings.frequency, viewModel::setFrequency) }
             message?.let { current ->
@@ -124,6 +164,19 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel? = null) {
                 }
             }
         }
+    }
+    restorePrompt?.let { prompt ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissRestorePrompt,
+            title = { Text("发现 GitHub 历史归档") },
+            text = { Text("发现 ${prompt.days} 天、${prompt.archives} 个归档，是否恢复到本机？") },
+            confirmButton = {
+                TextButton(onClick = viewModel::restoreFromGithub) { Text("恢复") }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissRestorePrompt) { Text("暂不") }
+            },
+        )
     }
 }
 
@@ -180,6 +233,8 @@ private fun GitHubCard(
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onSync: () -> Unit,
+    onValidate: () -> Unit,
+    onRestore: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -219,6 +274,10 @@ private fun GitHubCard(
                             modifier = Modifier.padding(start = 8.dp),
                         )
                     }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onValidate) { Text("校验云端归档") }
+                    OutlinedButton(onClick = onRestore) { Text("从 GitHub 恢复历史") }
                 }
             } else {
                 OutlinedTextField(
@@ -276,3 +335,85 @@ private fun frequencyLabel(frequency: SyncFrequency): String = when (frequency) 
 private fun formatSyncTime(timestamp: Long?): String = timestamp?.let {
     DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(it))
 } ?: "暂无"
+
+@Composable
+private fun RestoreProgressCard(state: RestoreUiState) {
+    if (state.state == io.github.tuzfucius.personalrecorder.sync.RestoreState.IDLE) return
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("归档协调", style = MaterialTheme.typography.titleMedium)
+            Text(
+                when {
+                    state.running && state.state == io.github.tuzfucius.personalrecorder.sync.RestoreState.DISCOVERING -> "正在扫描 GitHub…"
+                    state.running -> "正在恢复归档…"
+                    state.state == io.github.tuzfucius.personalrecorder.sync.RestoreState.COMPLETED -> "协调完成"
+                    else -> "协调失败"
+                }
+            )
+            if (state.discovered > 0) Text("发现 ${state.discovered} 个远端文件")
+            if (state.downloaded > 0 || state.uploaded > 0 || state.skipped > 0) {
+                Text("下载：${state.downloaded}  上传：${state.uploaded}  跳过：${state.skipped}")
+            }
+            if (state.conflicts > 0) {
+                Text("冲突：${state.conflicts}", color = MaterialTheme.colorScheme.error)
+            }
+            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        }
+    }
+}
+
+@Composable
+private fun BackgroundDiagnosticsCard(
+    runtimeState: BackgroundRuntimeState,
+    githubConnected: Boolean,
+    statusNotificationEnabled: Boolean,
+    onStatusNotificationChange: (Boolean) -> Unit,
+    onSync: () -> Unit,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("后台运行", style = MaterialTheme.typography.titleMedium)
+            StatusLine("通知访问", runtimeState.listenerConnected, if (runtimeState.listenerConnected) "正常" else "未连接")
+            StatusLine("GitHub", githubConnected, if (githubConnected) "已连接" else "未连接")
+            Text("待上传：${runtimeState.pendingUploads}    待下载：${runtimeState.pendingDownloads}")
+            Text("冲突：${runtimeState.conflicts}")
+            Text("最近采集：${formatSyncTime(runtimeState.lastEventAt)}")
+            Text("最近健康检查：${formatSyncTime(runtimeState.lastHealthCheckAt)}")
+            runtimeState.lastSyncError?.let { Text("最近错误：$it", color = MaterialTheme.colorScheme.error) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("后台状态通知", modifier = Modifier.weight(1f))
+                Switch(checked = statusNotificationEnabled, onCheckedChange = onStatusNotificationChange)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = {
+                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                }) { Text("通知访问设置") }
+                OutlinedButton(onClick = {
+                    context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                }) { Text("电池设置") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = {
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        .setData(Uri.parse("package:${context.packageName}"))
+                    context.startActivity(intent)
+                }) { Text("应用后台设置") }
+                Button(onClick = onSync) { Text("立即同步") }
+            }
+            Text(
+                "Android 与各厂商系统不保证普通应用永久存活，请按系统提示确认后台权限。",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatusLine(label: String, healthy: Boolean, value: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Text(label, modifier = Modifier.weight(1f))
+        Text(if (healthy) "● $value" else "△ $value", color = if (healthy) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+    }
+}
