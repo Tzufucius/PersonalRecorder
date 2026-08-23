@@ -45,7 +45,6 @@ class ArchiveSyncRunner(
             ?.settings ?: return@withLock SyncBatchResult(emptyList())
         val enabled = buildSet {
             if (settings.githubEnabled) add(CloudBackendType.GITHUB)
-            if (settings.googleDriveEnabled) add(CloudBackendType.GOOGLE_DRIVE)
         }
         if (enabled.isEmpty()) return@withLock SyncBatchResult(emptyList())
 
@@ -56,24 +55,8 @@ class ArchiveSyncRunner(
             results += pending.failures
             if (pending.uploads.isEmpty()) return@forEach
 
-            val connected = when (backendType) {
-                CloudBackendType.GITHUB -> settings.githubConnected
-                CloudBackendType.GOOGLE_DRIVE -> settings.googleDriveConnected
-            }
+            val connected = settings.githubConnected
             if (!connected) {
-                if (!force) return@forEach
-                val error = SyncError.Authentication("${backendType.name} 尚未连接")
-                pending.uploads.forEach { upload ->
-                    val result = ArchiveSyncResult(
-                        archive = upload.archive,
-                        backend = backendType,
-                        status = ArchiveSyncStatus.FAILED,
-                        attempts = 0,
-                        error = error,
-                    )
-                    persistState(upload.stateId, backendType, result)
-                    results += result
-                }
                 return@forEach
             }
 
@@ -87,10 +70,7 @@ class ArchiveSyncRunner(
                     persistState(upload.stateId, backendType, result)
                 }
                 if (result.error is SyncError.Authentication) {
-                    when (backendType) {
-                        CloudBackendType.GITHUB -> this@ArchiveSyncRunner.settings.setGithubConnected(false)
-                        CloudBackendType.GOOGLE_DRIVE -> this@ArchiveSyncRunner.settings.setGoogleDriveConnected(false)
-                    }
+                    this@ArchiveSyncRunner.settings.setGithubConnected(false)
                 }
             }
             results += batchResult.results
@@ -276,7 +256,7 @@ object CloudSyncRuntime {
         val appContext = context.applicationContext
         val secrets = SecureSecretStore(appContext)
         val settings = CloudSyncSettingsStore(appContext)
-        val githubApi = OkHttpGitHubApi(
+        val githubApi = GitHubArchiveClient(
             tokenProvider = GitHubAccessTokenProvider {
                 secrets.get(CloudCredentialStore.GITHUB_ACCESS_TOKEN)
             }
@@ -284,20 +264,12 @@ object CloudSyncRuntime {
         val github = GitHubCloudSyncBackend(
             repositoryProvider = {
                 val state = settings.state.first() as? CloudSyncSettingsState.Ready
-                state?.settings?.githubUsername?.let(GitHubRepository::defaultFor)
+                state?.settings?.let { current ->
+                    current.githubUsername?.let { owner -> GitHubRepository(owner, current.githubRepository) }
+                }
             },
-            guardProvider = { repository -> GitHubPrivateRepositoryGuard(githubApi) },
-            gitDataApi = githubApi,
+            api = githubApi,
         )
-        val driveProvider = PlayServicesGoogleDriveAccessTokenProvider(appContext)
-        val driveClient = OkHttpGoogleDriveRestClient(tokenProvider = driveProvider)
-        val drive = GoogleDriveCloudSyncBackend(
-            restClient = driveClient,
-            folderResolver = GoogleDriveFolderResolver(
-                restClient = driveClient,
-                cache = SharedPreferencesGoogleDriveFolderIdCache(appContext),
-            ),
-        )
-        return listOf(github, drive)
+        return listOf(github)
     }
 }

@@ -24,34 +24,17 @@ class SyncCoordinatorTest {
     @Test
     fun conflictIsNotRetryable() = runBlocking {
         val backend = FakeBackend(
-            CloudBackendType.GOOGLE_DRIVE,
+            CloudBackendType.GITHUB,
             mutableListOf(BackendSyncResult.Failure(SyncError.RemoteConflict("sha mismatch"))),
         )
         val result = SyncCoordinator(listOf(backend)).syncBatch(
             listOf(archive()),
-            setOf(CloudBackendType.GOOGLE_DRIVE),
+            setOf(CloudBackendType.GITHUB),
         )
 
         assertEquals(ArchiveSyncStatus.FAILED, result.results.single().status)
         assertFalse(result.needsRetry)
         assertEquals(1, backend.callCount)
-    }
-
-    @Test
-    fun oneBackendFailureDoesNotPreventAnotherBackend() = runBlocking {
-        val github = FakeBackend(
-            CloudBackendType.GITHUB,
-            mutableListOf(BackendSyncResult.Failure(SyncError.Authorization("forbidden"))),
-        )
-        val drive = FakeBackend(
-            CloudBackendType.GOOGLE_DRIVE,
-            mutableListOf(BackendSyncResult.Success("file-1")),
-        )
-        val result = SyncCoordinator(listOf(github, drive)).syncBatch(listOf(archive()))
-
-        assertEquals(2, result.results.size)
-        assertTrue(result.results.any { it.backend == CloudBackendType.GOOGLE_DRIVE && it.isSuccessful })
-        assertTrue(result.results.any { it.backend == CloudBackendType.GITHUB && !it.isSuccessful })
     }
 
     private fun archive() = CloudArchive(

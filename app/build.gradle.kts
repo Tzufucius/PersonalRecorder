@@ -17,12 +17,6 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
-        buildConfigField(
-            "String",
-            "GITHUB_CLIENT_ID",
-            "\"${project.findProperty("githubClientId") ?: ""}\""
-        )
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -41,7 +35,6 @@ android {
     }
     buildFeatures {
         compose = true
-        buildConfig = true
     }
 
     sourceSets {
@@ -72,7 +65,6 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
-    implementation(libs.play.services.auth)
     implementation(libs.vico.compose.m3)
     implementation(libs.kotlinx.coroutines.android)
     ksp(libs.androidx.room.compiler)
