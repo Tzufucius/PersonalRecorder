@@ -35,7 +35,7 @@ class OkHttpGitHubApi(
 
     override suspend fun requestDeviceCode(clientId: String, scope: String): GitHubDeviceCode {
         val request = Request.Builder()
-            .url("$OAUTH_BASE/device/code")
+            .url(DEVICE_CODE_URL)
             .header("Accept", "application/json")
             .post(FormBody.Builder().add("client_id", clientId).add("scope", scope).build())
             .build()
@@ -233,6 +233,7 @@ class OkHttpGitHubApi(
 
     private companion object {
         const val API_BASE = "https://api.github.com"
+        const val DEVICE_CODE_URL = "https://github.com/login/device/code"
         const val OAUTH_BASE = "https://github.com/login/oauth"
         const val API_VERSION = "2026-03-10"
         const val DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
