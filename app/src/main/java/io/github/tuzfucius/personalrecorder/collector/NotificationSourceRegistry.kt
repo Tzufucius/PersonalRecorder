@@ -1,7 +1,6 @@
 package io.github.tuzfucius.personalrecorder.collector
 
 import android.content.Context
-import android.content.pm.PackageManager
 import io.github.tuzfucius.personalrecorder.data.NotificationSourceDao
 
 data class NotificationSourceMetadata(
