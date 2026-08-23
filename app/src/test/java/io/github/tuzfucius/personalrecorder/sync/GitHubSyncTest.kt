@@ -17,7 +17,7 @@ class GitHubSyncTest {
         val error = guard.validate(GitHubRepository("alice", "PersonalRecorder-Archive"))
 
         assertTrue(error is SyncError.Authorization)
-        assertTrue(error?.message?.contains("公开") == true)
+        assertTrue(error?.message?.contains("私有") == true)
     }
 
     @Test
@@ -51,7 +51,7 @@ class GitHubSyncTest {
                     return "commit-1"
                 }
 
-                override suspend fun updateHead(repository: GitHubRepository, expectedCommitSha: String, newCommitSha: String): GitHubReferenceUpdate {
+                override suspend fun updateHead(repository: GitHubRepository, expectedCommitSha: String, newCommitSha: String, ref: String): GitHubReferenceUpdate {
                     calls += "update"
                     return GitHubReferenceUpdate.Updated
                 }

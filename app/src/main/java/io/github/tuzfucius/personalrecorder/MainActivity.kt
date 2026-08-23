@@ -5,7 +5,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import io.github.tuzfucius.personalrecorder.sync.CloudSyncRuntime
-import io.github.tuzfucius.personalrecorder.sync.GitHubOAuthRuntime
 import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsState
 import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsStore
 import androidx.lifecycle.lifecycleScope
@@ -30,11 +29,5 @@ class MainActivity : ComponentActivity() {
                 PersonalRecorderApp()
             }
         }
-    }
-
-    override fun onNewIntent(intent: android.content.Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        intent.data?.let { GitHubOAuthRuntime.consumeCallback(this, it) }
     }
 }

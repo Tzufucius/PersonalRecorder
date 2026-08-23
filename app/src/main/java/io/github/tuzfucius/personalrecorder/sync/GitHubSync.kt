@@ -1,134 +1,6 @@
 package io.github.tuzfucius.personalrecorder.sync
 
-import java.net.URI
-import java.net.URLDecoder
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
-import java.security.SecureRandom
-import java.util.Base64
-
-data class GitHubOAuthSession(
-    val state: String,
-    val codeVerifier: String,
-    val authorizationUri: String
-)
-
-sealed interface GitHubOAuthCallback {
-    data class Authorized(val code: String) : GitHubOAuthCallback
-    data class Denied(val error: String, val description: String?) : GitHubOAuthCallback
-    data class Invalid(val reason: String) : GitHubOAuthCallback
-}
-
-/**
- * GitHub 没有适合原生 APK 直接交换 token 的公开客户端流程。本协调器仅生成 PKCE/state 和验证回调；
- * token 交换必须交给可信服务，绝不在 APK、BuildConfig 或资源中保存 client secret。
- */
-class GitHubOAuthCoordinator(
-    private val clientId: String,
-    private val redirectUri: String = DEFAULT_REDIRECT_URI,
-    private val secureRandom: SecureRandom = SecureRandom()
-) {
-    init {
-        require(clientId.isNotBlank()) { "GitHub OAuth client ID 不能为空" }
-        require(URI(redirectUri).scheme == "personalrecorder") { "GitHub 回调必须使用应用 deep link" }
-    }
-
-    fun beginAuthorization(): GitHubOAuthSession {
-        val state = randomUrlSafeValue(32)
-        val verifier = randomUrlSafeValue(64)
-        val challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(
-            MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(StandardCharsets.US_ASCII))
-        )
-        val uri = buildString {
-            append(AUTHORIZATION_ENDPOINT)
-            append("?client_id=").append(encode(clientId))
-            append("&redirect_uri=").append(encode(redirectUri))
-            append("&scope=").append(encode("repo"))
-            append("&state=").append(encode(state))
-            append("&code_challenge=").append(encode(challenge))
-            append("&code_challenge_method=S256")
-        }
-        return GitHubOAuthSession(state, verifier, uri)
-    }
-
-    fun parseCallback(callbackUri: String, expectedState: String): GitHubOAuthCallback {
-        val parsed = runCatching { URI(callbackUri) }.getOrElse {
-            return GitHubOAuthCallback.Invalid("无效的 OAuth 回调地址")
-        }
-        if (!isExpectedRedirect(parsed)) return GitHubOAuthCallback.Invalid("OAuth 回调地址不匹配")
-        val parameters = parsed.query.orEmpty().split("&").mapNotNull { pair ->
-            pair.substringBefore("=", "").takeIf { it.isNotBlank() }?.let { key ->
-                key to decode(pair.substringAfter("=", ""))
-            }
-        }.toMap()
-        if (parameters["state"] != expectedState) return GitHubOAuthCallback.Invalid("OAuth state 不匹配")
-        parameters["error"]?.let { return GitHubOAuthCallback.Denied(it, parameters["error_description"]) }
-        val code = parameters["code"] ?: return GitHubOAuthCallback.Invalid("OAuth 回调缺少授权码")
-        return GitHubOAuthCallback.Authorized(code)
-    }
-
-    private fun isExpectedRedirect(uri: URI): Boolean {
-        val expected = URI(redirectUri)
-        return uri.scheme.equals(expected.scheme, ignoreCase = true) &&
-            uri.authority.equals(expected.authority, ignoreCase = true) &&
-            uri.path == expected.path
-    }
-
-    private fun randomUrlSafeValue(byteCount: Int): String = ByteArray(byteCount).also(secureRandom::nextBytes)
-        .let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
-
-    private fun encode(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8.name())
-    private fun decode(value: String): String = URLDecoder.decode(value, StandardCharsets.UTF_8.name())
-
-    companion object {
-        const val DEFAULT_REDIRECT_URI = "personalrecorder://oauth/github"
-        private const val AUTHORIZATION_ENDPOINT = "https://github.com/login/oauth/authorize"
-    }
-}
-
-/** 进程内暂存 PKCE verifier，避免将其写入普通 DataStore 或日志。 */
-class GitHubOAuthDeepLinkCoordinator(
-    private val oauth: GitHubOAuthCoordinator,
-    private val secureSecrets: SecureSecretStore? = null,
-) {
-    private var pendingSession: GitHubOAuthSession? = null
-
-    @Synchronized
-    fun startAuthorization(): GitHubOAuthSession = oauth.beginAuthorization().also {
-        pendingSession = it
-        secureSecrets?.put(CloudCredentialStore.GITHUB_PENDING_STATE, it.state)
-        secureSecrets?.put(CloudCredentialStore.GITHUB_PENDING_VERIFIER, it.codeVerifier)
-    }
-
-    @Synchronized
-    fun consumeCallback(callbackUri: String): Pair<GitHubOAuthCallback, String?> {
-        val session = pendingSession ?: secureSecrets?.get(CloudCredentialStore.GITHUB_PENDING_STATE)?.let { state ->
-            secureSecrets.get(CloudCredentialStore.GITHUB_PENDING_VERIFIER)?.let { verifier ->
-                GitHubOAuthSession(state, verifier, "")
-            }
-        } ?: return GitHubOAuthCallback.Invalid("没有待处理的 OAuth 请求") to null
-        val callback = oauth.parseCallback(callbackUri, session.state)
-        if (callback !is GitHubOAuthCallback.Invalid) {
-            pendingSession = null
-            secureSecrets?.remove(CloudCredentialStore.GITHUB_PENDING_STATE)
-            secureSecrets?.remove(CloudCredentialStore.GITHUB_PENDING_VERIFIER)
-        }
-        return callback to if (callback is GitHubOAuthCallback.Authorized) session.codeVerifier else null
-    }
-}
-
-data class GitHubTokenExchangeRequest(val code: String, val codeVerifier: String)
-
-interface GitHubTokenExchange {
-    suspend fun exchange(request: GitHubTokenExchangeRequest): BackendSyncResult
-}
-
-/** 默认安全占位：未配置可信交换服务时不会伪造已授权。 */
-object UnconfiguredGitHubTokenExchange : GitHubTokenExchange {
-    override suspend fun exchange(request: GitHubTokenExchangeRequest): BackendSyncResult =
-        BackendSyncResult.Failure(SyncError.NotConfigured("未配置 GitHub 可信 token 交换服务"))
-}
 
 data class GitHubRepository(val owner: String, val name: String) {
     companion object {
@@ -137,7 +9,24 @@ data class GitHubRepository(val owner: String, val name: String) {
         fun defaultFor(owner: String): GitHubRepository = GitHubRepository(owner, DEFAULT_NAME)
     }
 }
+
 data class GitHubRepositoryAccess(val owner: String, val isPrivate: Boolean, val canPush: Boolean)
+
+data class GitHubRepositoryDetails(
+    val owner: String,
+    val isPrivate: Boolean,
+    val canPush: Boolean,
+    val defaultBranch: String,
+)
+
+interface GitHubAccountApi {
+    suspend fun authenticatedLogin(): String
+}
+
+interface GitHubRepositoryProvisioner {
+    suspend fun findRepository(repository: GitHubRepository): GitHubRepositoryDetails?
+    suspend fun createPrivateRepository(name: String): GitHubRepositoryDetails
+}
 
 interface GitHubRepositoryInspector {
     suspend fun authenticatedLogin(): String
@@ -150,16 +39,38 @@ class GitHubPrivateRepositoryGuard(private val inspector: GitHubRepositoryInspec
         val login = inspector.authenticatedLogin()
         val access = inspector.repositoryAccess(repository)
         when {
-            !access.owner.equals(login, ignoreCase = true) -> SyncError.Authorization("GitHub 仓库不属于当前账号")
-            !access.isPrivate -> SyncError.Authorization("禁止向公开 GitHub 仓库同步")
-            !access.canPush -> SyncError.Authorization("当前 GitHub 账号没有仓库写入权限")
+            !access.owner.equals(login, ignoreCase = true) ->
+                SyncError.Authorization("GitHub 仓库不属于当前账号")
+            !access.isPrivate ->
+                SyncError.Authorization("目标 GitHub 仓库不是私有仓库，已阻止同步")
+            !access.canPush ->
+                SyncError.Authorization("当前 GitHub 账号没有仓库写入权限")
             else -> null
         }
-    }.getOrElse { SyncError.Network("无法验证 GitHub 私有仓库", it) }
+    }.getOrElse { error ->
+        when (error) {
+            is SyncHttpException -> when {
+                error.statusCode == 401 -> SyncError.Authentication("GitHub 未授权")
+                error.statusCode == 403 -> SyncError.Authorization("GitHub API 拒绝访问")
+                error.statusCode == 404 -> SyncError.Authorization("GitHub 归档仓库不存在")
+                error.statusCode == 429 -> SyncError.RateLimited("GitHub API 请求过于频繁")
+                error.statusCode >= 500 -> SyncError.ServiceUnavailable("GitHub 服务暂不可用")
+                else -> SyncError.Network("无法验证 GitHub 私有仓库", error)
+            }
+            else -> SyncError.Network("无法验证 GitHub 私有仓库", error)
+        }
+    }
 }
 
-data class GitHubHead(val commitSha: String, val treeSha: String)
+data class GitHubHead(
+    val commitSha: String,
+    val treeSha: String,
+    val ref: String = "heads/main",
+)
+
 data class GitHubBlob(val path: String, val sha: String)
+data class GitHubTreeEntry(val path: String, val sha: String, val type: String = "blob")
+
 sealed interface GitHubReferenceUpdate {
     data object Updated : GitHubReferenceUpdate
     data class Conflict(val message: String) : GitHubReferenceUpdate
@@ -168,43 +79,137 @@ sealed interface GitHubReferenceUpdate {
 /** Git Data API 边界；HTTP 鉴权和 token 存储由调用方实现，接口本身不承载 secret。 */
 interface GitHubGitDataApi {
     suspend fun head(repository: GitHubRepository): GitHubHead
+    suspend fun tree(repository: GitHubRepository, treeSha: String): Map<String, GitHubTreeEntry> = emptyMap()
     suspend fun createBlob(repository: GitHubRepository, content: ByteArray): String
     suspend fun createTree(repository: GitHubRepository, baseTreeSha: String, blobs: List<GitHubBlob>): String
     suspend fun createCommit(repository: GitHubRepository, parentCommitSha: String, treeSha: String, message: String): String
-    suspend fun updateHead(repository: GitHubRepository, expectedCommitSha: String, newCommitSha: String): GitHubReferenceUpdate
+    suspend fun updateHead(
+        repository: GitHubRepository,
+        expectedCommitSha: String,
+        newCommitSha: String,
+        ref: String = "heads/main",
+    ): GitHubReferenceUpdate
 }
 
-/** 通过 Git Data API 将同一批文件组合为一个逻辑 commit。 */
+/** 通过 Git Data API 将同一批文件组合为一个逻辑 commit，并对远端内容做幂等保护。 */
 class GitHubCloudSyncBackend(
-    private val repository: GitHubRepository,
-    private val guard: GitHubPrivateRepositoryGuard,
-    private val gitDataApi: GitHubGitDataApi
+    private val repositoryProvider: suspend () -> GitHubRepository?,
+    private val guardProvider: (GitHubRepository) -> GitHubPrivateRepositoryGuard,
+    private val gitDataApi: GitHubGitDataApi,
 ) : CloudSyncBackend {
+    constructor(
+        repository: GitHubRepository,
+        guard: GitHubPrivateRepositoryGuard,
+        gitDataApi: GitHubGitDataApi,
+    ) : this({ repository }, { guard }, gitDataApi)
+
     override val type = CloudBackendType.GITHUB
 
-    override suspend fun sync(archive: CloudArchive): BackendSyncResult = syncBatch(listOf(archive))[archive.relativePath]
-        ?: BackendSyncResult.Failure(SyncError.Unknown("GitHub 同步没有返回归档结果"))
+    override suspend fun sync(archive: CloudArchive): BackendSyncResult =
+        syncBatch(listOf(archive))[archive.relativePath]
+            ?: BackendSyncResult.Failure(SyncError.Unknown("GitHub 同步没有返回归档结果"))
 
     override suspend fun syncBatch(archives: Collection<CloudArchive>): Map<String, BackendSyncResult> {
         if (archives.isEmpty()) return emptyMap()
-        guard.validate(repository)?.let { error ->
+        val repository = repositoryProvider()
+            ?: return archives.associate { it.relativePath to BackendSyncResult.Failure(SyncError.NotConfigured("GitHub 尚未完成连接")) }
+        guardProvider(repository).validate(repository)?.let { error ->
             return archives.associate { it.relativePath to BackendSyncResult.Failure(error) }
         }
+
         return runCatching {
             val head = gitDataApi.head(repository)
-            val blobs = archives.map { archive -> GitHubBlob(archive.relativePath, gitDataApi.createBlob(repository, archive.content)) }
-            val tree = gitDataApi.createTree(repository, head.treeSha, blobs)
-            val commit = gitDataApi.createCommit(repository, head.commitSha, tree, "sync: upload ${archives.size} archive file(s)")
-            when (val update = gitDataApi.updateHead(repository, head.commitSha, commit)) {
-                GitHubReferenceUpdate.Updated -> archives.associate {
-                    it.relativePath to BackendSyncResult.Success(commit)
-                }
-                is GitHubReferenceUpdate.Conflict -> archives.associate {
-                    it.relativePath to BackendSyncResult.Failure(SyncError.RemoteConflict(update.message))
+            val remoteEntries = gitDataApi.tree(repository, head.treeSha)
+            val alreadyPresent = mutableMapOf<String, BackendSyncResult.Success>()
+            val conflicts = mutableMapOf<String, BackendSyncResult.Failure>()
+            val newArchives = mutableListOf<CloudArchive>()
+
+            archives.sortedBy { it.relativePath }.forEach { archive ->
+                val remote = remoteEntries[archive.relativePath]
+                when {
+                    remote == null -> newArchives += archive
+                    remote.type != "blob" -> conflicts[archive.relativePath] = BackendSyncResult.Failure(
+                        SyncError.RemoteConflict("GitHub 远端路径不是文件: ${archive.relativePath}")
+                    )
+                    gitBlobSha(archive.content) == remote.sha -> alreadyPresent[archive.relativePath] =
+                        BackendSyncResult.Success(remoteReference = remote.sha, wasAlreadyPresent = true)
+                    else -> conflicts[archive.relativePath] = BackendSyncResult.Failure(
+                        SyncError.RemoteConflict("GitHub 中同路径文件内容与本地归档不一致")
+                    )
                 }
             }
-        }.getOrElse { throwable ->
-            archives.associate { it.relativePath to BackendSyncResult.Failure(SyncError.Network("GitHub 上传失败", throwable)) }
+
+            if (newArchives.isEmpty()) {
+                return@runCatching archives.associate { archive ->
+                    archive.relativePath to (alreadyPresent[archive.relativePath]
+                        ?: conflicts[archive.relativePath]
+                        ?: BackendSyncResult.Failure(SyncError.Unknown("GitHub 归档结果缺失")))
+                }
+            }
+
+            val blobs = newArchives.map { archive ->
+                GitHubBlob(archive.relativePath, gitDataApi.createBlob(repository, archive.content))
+            }
+            val tree = gitDataApi.createTree(repository, head.treeSha, blobs)
+            val commit = gitDataApi.createCommit(
+                repository = repository,
+                parentCommitSha = head.commitSha,
+                treeSha = tree,
+                message = archiveCommitMessage(archives),
+            )
+            when (val update = gitDataApi.updateHead(repository, head.commitSha, commit, head.ref)) {
+                GitHubReferenceUpdate.Updated -> archives.associate { archive ->
+                    archive.relativePath to when {
+                        alreadyPresent.containsKey(archive.relativePath) -> alreadyPresent.getValue(archive.relativePath)
+                        conflicts.containsKey(archive.relativePath) -> conflicts.getValue(archive.relativePath)
+                        else -> BackendSyncResult.Success(remoteReference = commit)
+                    }
+                }
+                is GitHubReferenceUpdate.Conflict -> archives.associate { archive ->
+                    archive.relativePath to (alreadyPresent[archive.relativePath]
+                        ?: conflicts[archive.relativePath]
+                        ?: BackendSyncResult.Failure(SyncError.RemoteConflict(update.message)))
+                }
+            }
+        }.getOrElse { error ->
+            val syncError = when (error) {
+                is SyncHttpException -> when {
+                    error.statusCode == 401 -> SyncError.Authentication("GitHub 未授权")
+                    error.statusCode == 403 -> SyncError.Authorization("GitHub API 拒绝访问")
+                    error.statusCode == 404 -> SyncError.Authorization("GitHub 归档仓库不存在")
+                    error.statusCode == 409 -> SyncError.RemoteConflict("GitHub 远端引用已变化")
+                    error.statusCode == 429 -> SyncError.RateLimited("GitHub API 请求过于频繁")
+                    error.statusCode >= 500 -> SyncError.ServiceUnavailable("GitHub 服务暂不可用")
+                    else -> SyncError.Unknown("GitHub 上传失败", error)
+                }
+                else -> SyncError.Network("GitHub 上传失败", error)
+            }
+            archives.associate { it.relativePath to BackendSyncResult.Failure(syncError) }
+        }
+    }
+
+    private fun archiveCommitMessage(archives: Collection<CloudArchive>): String {
+        val dates = archives.mapNotNull { ARCHIVE_PATH.find(it.relativePath)?.groupValues?.get(1) }.toSet()
+        if (dates.size > 1) return "archive: 批量同步通知归档"
+        val date = dates.singleOrNull() ?: return "archive: 同步通知归档"
+        val slots = archives.mapNotNull { ARCHIVE_PATH.find(it.relativePath)?.groupValues?.get(2) }
+            .map { it.substringBeforeLast('.') }
+            .toSet()
+        return if (archives.size == 1 && slots.size == 1 && slots.single() != "manifest") {
+            "archive: 同步 $date ${slots.single()} 通知归档"
+        } else {
+            "archive: 同步 $date 通知归档"
+        }
+    }
+
+    private companion object {
+        val ARCHIVE_PATH = Regex("archive/\\d{4}/\\d{2}/(\\d{4}-\\d{2}-\\d{2})/([^/]+)$")
+
+        fun gitBlobSha(content: ByteArray): String {
+            val header = "blob ${content.size}\u0000".toByteArray(Charsets.UTF_8)
+            return MessageDigest.getInstance("SHA-1")
+                .digest(header + content)
+                .joinToString("") { "%02x".format(it) }
         }
     }
 }
