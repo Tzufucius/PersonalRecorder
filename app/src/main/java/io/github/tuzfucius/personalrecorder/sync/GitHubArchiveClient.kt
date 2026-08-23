@@ -88,6 +88,21 @@ class GitHubArchiveClient(
         }
     }
 
+    override suspend fun getContentMetadata(
+        repository: GitHubRepository,
+        path: String,
+    ): GitHubContentMetadata? {
+        return try {
+            val body = executeJson(
+                "读取归档元数据: $path",
+                authorizedRequest(contentUrl(repository, path)).get().build(),
+            )
+            parseContentMetadata(body)
+        } catch (error: SyncHttpException) {
+            if (error.statusCode == 404) null else throw error
+        }
+    }
+
     override suspend fun putContent(
         repository: GitHubRepository,
         path: String,
@@ -129,6 +144,15 @@ class GitHubArchiveClient(
             runCatching { Base64.getMimeDecoder().decode(value) }.getOrNull()
         }
         return GitHubContent(path = path, sha = sha, content = decoded)
+    }
+
+    private fun parseContentMetadata(body: JsonObject): GitHubContentMetadata {
+        val path = body["path"]?.jsonPrimitive?.content
+            ?: throw SyncHttpException(422, "GitHub Contents 响应缺少 path")
+        val sha = body["sha"]?.jsonPrimitive?.content
+            ?: throw SyncHttpException(422, "GitHub Contents 响应缺少 sha")
+        val size = body["size"]?.jsonPrimitive?.longOrNull ?: 0L
+        return GitHubContentMetadata(path = path, sha = sha, size = size)
     }
 
     private suspend fun executeJson(operation: String, request: Request): JsonObject = withContext(Dispatchers.IO) {
@@ -202,12 +226,23 @@ class GitHubArchiveClient(
         }
     }
 
-    override suspend fun downloadContent(repository: GitHubRepository, path: String): GitHubContent? =
-        getContent(repository, path)
+    override suspend fun downloadContent(repository: GitHubRepository, path: String): ByteArray? {
+        return try {
+            executeBytes(
+                "下载归档二进制: $path",
+                authorizedRequest(contentUrl(repository, path), RAW_MEDIA_TYPE).get().build(),
+            )
+        } catch (error: SyncHttpException) {
+            if (error.statusCode == 404) null else throw error
+        }
+    }
 
-    private fun authorizedRequest(url: String): Request.Builder = Request.Builder()
+    private fun authorizedRequest(
+        url: String,
+        accept: String = JSON_MEDIA_TYPE_HEADER,
+    ): Request.Builder = Request.Builder()
         .url(url)
-        .header("Accept", "application/vnd.github+json")
+        .header("Accept", accept)
         .header("X-GitHub-Api-Version", API_VERSION)
         .header("User-Agent", "PersonalRecorder")
 
@@ -223,10 +258,33 @@ class GitHubArchiveClient(
         runCatching { Log.d(TAG, message) }
     }
 
+    private suspend fun executeBytes(operation: String, request: Request): ByteArray = withContext(Dispatchers.IO) {
+        val token = tokenProvider.accessToken()?.trim()
+        if (token.isNullOrBlank()) throw SyncHttpException(401, "GitHub access token is missing")
+        val authorized = request.newBuilder()
+            .header("Authorization", "Bearer $token")
+            .build()
+        logDebug(operation)
+        return@withContext httpClient.newCall(authorized).execute().use { response ->
+            logDebug("$operation: HTTP ${response.code}")
+            if (!response.isSuccessful) {
+                throw SyncHttpException(
+                    statusCode = response.code,
+                    message = "GitHub HTTP ${response.code}",
+                    rateLimited = response.code == 429 ||
+                        (response.code == 403 && response.header("X-RateLimit-Remaining") == "0"),
+                )
+            }
+            response.body?.bytes() ?: ByteArray(0)
+        }
+    }
+
     private companion object {
         const val TAG = "PR-GitHub"
         const val API_BASE = "https://api.github.com"
         const val API_VERSION = "2022-11-28"
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+        const val JSON_MEDIA_TYPE_HEADER = "application/vnd.github+json"
+        const val RAW_MEDIA_TYPE = "application/vnd.github.raw+json"
     }
 }

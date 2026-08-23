@@ -55,6 +55,7 @@ class ArchiveImportService(
         bytes: ByteArray,
         zoneId: ZoneId,
         createdAt: Long,
+        verificationStatus: ArchiveVerificationStatus = ArchiveVerificationStatus.VERIFIED,
     ): ArchiveImportResult {
         require(!descriptor.isManifest) { "manifest 不能作为事件 segment 导入" }
         val result = importSegment(bytes, zoneId)
@@ -74,6 +75,7 @@ class ArchiveImportService(
                 sha256 = descriptor.sha256,
                 closed = true,
                 createdAt = createdAt,
+                verificationStatus = verificationStatus.name,
             )
         )
         return result

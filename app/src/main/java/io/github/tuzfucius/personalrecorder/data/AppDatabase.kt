@@ -10,7 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [EventEntity::class, ArchiveSegmentEntity::class, ArchiveSyncStateEntity::class, ArchiveConflictEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(StringListConverter::class)
@@ -26,7 +26,7 @@ abstract class AppDatabase : RoomDatabase() {
                 context.applicationContext,
                 AppDatabase::class.java,
                 "personal_recorder.db"
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
         }
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -91,6 +91,14 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_archive_conflicts_segmentId ON archive_conflicts(segmentId)")
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_archive_conflicts_resolved ON archive_conflicts(resolved)")
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE archive_segments ADD COLUMN verificationStatus TEXT NOT NULL DEFAULT 'VERIFIED'"
+                )
             }
         }
     }

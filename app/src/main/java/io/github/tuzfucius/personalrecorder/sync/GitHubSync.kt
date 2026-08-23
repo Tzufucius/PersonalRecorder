@@ -29,6 +29,12 @@ data class GitHubContent(
     val content: ByteArray? = null,
 )
 
+data class GitHubContentMetadata(
+    val path: String,
+    val sha: String,
+    val size: Long,
+)
+
 data class GitHubDirectoryEntry(
     val path: String,
     val type: String,
@@ -43,6 +49,13 @@ interface GitHubArchiveApi {
     suspend fun createPrivateRepository(name: String): GitHubRepositoryDetails
     suspend fun getContent(repository: GitHubRepository, path: String): GitHubContent?
 
+    suspend fun getContentMetadata(
+        repository: GitHubRepository,
+        path: String,
+    ): GitHubContentMetadata? = getContent(repository, path)?.let {
+        GitHubContentMetadata(it.path, it.sha, it.content?.size?.toLong() ?: 0L)
+    }
+
     suspend fun listDirectory(
         repository: GitHubRepository,
         path: String,
@@ -51,7 +64,7 @@ interface GitHubArchiveApi {
     suspend fun downloadContent(
         repository: GitHubRepository,
         path: String,
-    ): GitHubContent? = getContent(repository, path)
+    ): ByteArray? = getContent(repository, path)?.content
     suspend fun putContent(
         repository: GitHubRepository,
         path: String,
@@ -189,8 +202,9 @@ class GitHubCloudSyncBackend(
 
     private suspend fun syncOne(repository: GitHubRepository, archive: CloudArchive): BackendSyncResult {
         return try {
-            val remote = api.getContent(repository, archive.relativePath)
-            if (remote != null && remote.content?.contentEquals(archive.content) == true) {
+            val remote = api.getContentMetadata(repository, archive.relativePath)
+            val remoteBytes = remote?.let { api.downloadContent(repository, archive.relativePath) }
+            if (remote != null && remoteBytes?.contentEquals(archive.content) == true) {
                 BackendSyncResult.Success(remoteReference = remote.sha, wasAlreadyPresent = true)
             } else {
                 val uploaded = api.putContent(

@@ -127,6 +127,7 @@ class ArchiveWriter(
             encodeDefaults = true
             explicitNulls = true
             prettyPrint = false
+            ignoreUnknownKeys = true
         }
     }
 }

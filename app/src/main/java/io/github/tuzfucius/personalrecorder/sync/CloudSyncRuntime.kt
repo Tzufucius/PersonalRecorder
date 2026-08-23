@@ -86,7 +86,10 @@ class ArchiveSyncRunner(
         SyncBatchResult(results)
     }
 
-    suspend fun runReconcile(mode: ReconcileMode): ReconcileReport = syncMutex.withLock {
+    suspend fun runReconcile(
+        mode: ReconcileMode,
+        onProgress: suspend (ReconcileProgress) -> Unit = {},
+    ): ReconcileReport = syncMutex.withLock {
         finalizeClosedArchives()
         val current = (settings.state.first() as? CloudSyncSettingsState.Ready)?.settings
         if (current?.githubConnected != true || !current.githubEnabled) {
@@ -112,7 +115,7 @@ class ArchiveSyncRunner(
                 results = emptyList(),
                 restoreState = RestoreState.FAILED,
             )
-        reconcileGithub(backend, mode)
+        reconcileGithub(backend, mode, onProgress)
     }
 
     suspend fun discoverRemote(mode: ReconcileMode = ReconcileMode.FULL_RESTORE): RemoteArchiveInventory? =
@@ -135,6 +138,7 @@ class ArchiveSyncRunner(
     private suspend fun reconcileGithub(
         backend: GitHubCloudSyncBackend,
         mode: ReconcileMode,
+        onProgress: suspend (ReconcileProgress) -> Unit = {},
     ): ReconcileReport {
         val runtimeState = BackgroundRuntimeStateStore(appContext)
         runtimeState.markSyncAttempt(nowMillis())
@@ -146,7 +150,7 @@ class ArchiveSyncRunner(
             zoneId = writer.zoneId,
             deviceInstanceIdProvider = { DeviceIdentityStore(appContext).getOrCreateId() },
             nowMillis = nowMillis,
-        ).reconcile(mode)
+        ).reconcile(mode, onProgress)
         if (report.results.any { it.error is SyncError.Authentication }) {
             settings.setGithubConnected(false)
         }

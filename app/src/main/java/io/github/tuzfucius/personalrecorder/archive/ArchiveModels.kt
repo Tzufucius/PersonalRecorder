@@ -87,5 +87,15 @@ data class ArchiveManifest(
 data class ArchiveManifestSegment(
     val fileName: String,
     val eventCount: Int,
-    val sha256: String,
+    val sha256: String = "",
 )
+
+fun mergeSourceDeviceIds(
+    local: Iterable<String>,
+    remote: Iterable<String>,
+    current: String?,
+): List<String> = (local + remote + listOfNotNull(current))
+    .map(String::trim)
+    .filter(String::isNotBlank)
+    .distinct()
+    .sorted()

@@ -83,6 +83,29 @@ class AppDatabaseMigrationInstrumentedTest {
         }
     }
 
+    @Test
+    fun migrate4To5AddsVerifiedArchiveStatus() {
+        helper.createDatabase("migration-test-v4.db", 4).apply {
+            execSQL(
+                "INSERT INTO archive_segments VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                arrayOf("segment", "2026-08-23", "FIRST_HALF", "archive/a.jsonl", 1L, 2L, 0, "sha", 1, 1L),
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(
+            "migration-test-v4.db",
+            5,
+            true,
+            AppDatabase.MIGRATION_4_5,
+        ).query(
+            "SELECT verificationStatus FROM archive_segments LIMIT 1"
+        ).use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("VERIFIED", cursor.getString(0))
+        }
+    }
+
     private companion object {
         const val DATABASE_NAME = "migration-test.db"
     }

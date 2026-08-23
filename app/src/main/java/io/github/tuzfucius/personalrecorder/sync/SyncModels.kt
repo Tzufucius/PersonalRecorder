@@ -1,5 +1,7 @@
 package io.github.tuzfucius.personalrecorder.sync
 
+import java.time.LocalDate
+
 /** 云端后端的稳定标识。Room 仍以字符串保存历史 backend 值。 */
 enum class CloudBackendType {
     GITHUB
@@ -34,6 +36,46 @@ enum class ReconcileMode {
     INCREMENTAL,
     FULL_RESTORE,
 }
+
+/** The exact date set both local and remote inventory scans are allowed to touch. */
+data class ReconcileScope(
+    val dates: Set<LocalDate>? = null,
+    val full: Boolean = dates == null,
+) {
+    init {
+        require(full == (dates == null)) { "FULL scope must not contain dates" }
+    }
+
+    fun includes(date: LocalDate): Boolean = full || date in dates.orEmpty()
+
+    companion object {
+        fun full(): ReconcileScope = ReconcileScope(full = true)
+
+        fun dates(dates: Set<LocalDate>): ReconcileScope = ReconcileScope(
+            dates = dates.toSet(),
+            full = false,
+        )
+    }
+}
+
+enum class ArchiveVerificationStatus {
+    VERIFIED,
+    LEGACY_UNVERIFIED,
+}
+
+data class ReconcileProgress(
+    val phase: String,
+    val discovered: Int = 0,
+    val processed: Int = 0,
+    val total: Int = 0,
+    val downloaded: Int = 0,
+    val uploaded: Int = 0,
+    val skipped: Int = 0,
+    val conflicts: Int = 0,
+    val currentPath: String? = null,
+)
+
+class InvalidArchiveException(message: String, cause: Throwable? = null) : IllegalArgumentException(message, cause)
 
 enum class RestoreState {
     IDLE,

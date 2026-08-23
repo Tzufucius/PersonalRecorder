@@ -7,7 +7,6 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.file.Files
 import java.security.MessageDigest
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -62,7 +61,7 @@ object ArchivePathDescriptor {
 }
 
 class LocalArchiveInventoryScanner(private val filesDir: File) {
-    suspend fun scan(): LocalArchiveInventory = withContext(Dispatchers.IO) {
+    suspend fun scan(scope: ReconcileScope = ReconcileScope.full()): LocalArchiveInventory = withContext(Dispatchers.IO) {
         val root = File(filesDir, "archive")
         if (!root.isDirectory) return@withContext LocalArchiveInventory(emptyList())
         val descriptors = root.walkTopDown()
@@ -71,6 +70,7 @@ class LocalArchiveInventoryScanner(private val filesDir: File) {
                 val relative = filesDir.toPath().relativize(file.toPath()).toString().replace('\\', '/')
                 ArchivePathDescriptor.fromPath(relative, sha256(file), file.length())
             }
+            .filter { descriptor -> scope.includes(LocalDate.parse(descriptor.date, ARCHIVE_DATE_FORMAT)) }
             .toList()
         LocalArchiveInventory(descriptors.sortedBy { it.relativePath })
     }
@@ -95,17 +95,11 @@ class RemoteArchiveInventoryScanner(
     private val zoneId: ZoneId = ZoneId.systemDefault(),
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
-    suspend fun discover(
-        mode: ReconcileMode,
-        localDates: Set<String> = emptySet(),
-    ): RemoteArchiveInventory {
-        val paths = if (mode == ReconcileMode.FULL_RESTORE) {
+    suspend fun discover(scope: ReconcileScope): RemoteArchiveInventory {
+        val paths = if (scope.full) {
             discoverRecursively("archive")
         } else {
-            val datePaths = (localDates + recentDates())
-                .mapNotNull { runCatching { LocalDate.parse(it, ARCHIVE_DATE_FORMAT) }.getOrNull() }
-                .distinct()
-                .sorted()
+            val datePaths = scope.dates.orEmpty().sorted()
                 .map(ArchivePathDescriptor::datePath)
             datePaths.flatMap { api.listDirectory(repository, it) }
         }
@@ -132,10 +126,6 @@ class RemoteArchiveInventoryScanner(
         }
     }
 
-    private fun recentDates(): Set<String> {
-        val today = Instant.ofEpochMilli(nowMillis()).atZone(zoneId).toLocalDate()
-        return (0..7).map { today.minusDays(it.toLong()).toString() }.toSet()
-    }
 }
 
 object ArchiveFileStore {

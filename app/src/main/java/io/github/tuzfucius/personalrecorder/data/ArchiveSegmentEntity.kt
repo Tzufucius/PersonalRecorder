@@ -2,6 +2,7 @@ package io.github.tuzfucius.personalrecorder.data
 
 import androidx.room.Entity
 import androidx.room.Index
+import io.github.tuzfucius.personalrecorder.sync.ArchiveVerificationStatus
 
 /** Metadata for an immutable half-day JSONL archive segment. */
 @Entity(
@@ -19,4 +20,5 @@ data class ArchiveSegmentEntity(
     val sha256: String,
     val closed: Boolean = true,
     val createdAt: Long,
+    val verificationStatus: String = ArchiveVerificationStatus.VERIFIED.name,
 )

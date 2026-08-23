@@ -1,13 +1,30 @@
 package io.github.tuzfucius.personalrecorder.sync
 
 import java.nio.file.Files
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
 
 class ArchiveInventoryTest {
+    @Test
+    fun scopedLocalScanDoesNotExposeOldSyncedArchiveOutsideIncrementalWindow() = runBlocking {
+        val root = Files.createTempDirectory("archive-scope").toFile()
+        val oldPath = "archive/2026/07/2026-07-01/00-12.jsonl"
+        val recentPath = "archive/2026/08/2026-08-23/00-12.jsonl"
+        ArchiveFileStore.atomicWrite(root, oldPath, "old".toByteArray())
+        ArchiveFileStore.atomicWrite(root, recentPath, "recent".toByteArray())
+
+        val inventory = LocalArchiveInventoryScanner(root).scan(
+            ReconcileScope.dates(setOf(LocalDate.of(2026, 8, 23)))
+        )
+
+        assertEquals(listOf(recentPath), inventory.descriptors.map { it.relativePath })
+    }
+
     @Test
     fun descriptorRecognizesSegmentsAndManifestOnlyInsideArchiveDateDirectory() {
         val segment = ArchivePathDescriptor.fromPath(
