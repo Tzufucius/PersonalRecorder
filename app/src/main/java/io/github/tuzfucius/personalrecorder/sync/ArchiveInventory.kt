@@ -95,6 +95,21 @@ class RemoteArchiveInventoryScanner(
     private val zoneId: ZoneId = ZoneId.systemDefault(),
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
+    /** Compatibility overload for callers that still provide date strings. */
+    suspend fun discover(
+        mode: ReconcileMode,
+        localDates: Set<String> = emptySet(),
+    ): RemoteArchiveInventory {
+        if (mode == ReconcileMode.FULL_RESTORE) return discover(ReconcileScope.full())
+        val today = java.time.Instant.ofEpochMilli(nowMillis()).atZone(zoneId).toLocalDate()
+        val dates = buildSet {
+            (0..7).forEach { add(today.minusDays(it.toLong())) }
+            localDates.mapNotNull { runCatching { LocalDate.parse(it, ARCHIVE_DATE_FORMAT) }.getOrNull() }
+                .forEach(::add)
+        }
+        return discover(ReconcileScope.dates(dates))
+    }
+
     suspend fun discover(scope: ReconcileScope): RemoteArchiveInventory {
         val paths = if (scope.full) {
             discoverRecursively("archive")
