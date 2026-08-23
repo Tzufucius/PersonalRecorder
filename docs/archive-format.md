@@ -26,6 +26,16 @@ archive/YYYY/MM/YYYY-MM-DD/
 
 ## Manifest 与完整性
 
-当天两个 segment 都闭合后才生成最终 `manifest.json`，避免半日 manifest 被重复覆盖。manifest 记录日期、设备时区、每个 segment 的数量和 SHA-256，以及当天总事件数。
+当天两个 segment 都闭合后才生成最终 `manifest.json`，避免半日 manifest 被重复覆盖。manifest 记录固定的 `schemaVersion`、日期、设备时区、每个 segment 的数量和 SHA-256，以及当天总事件数。
+
+```json
+{
+  "schemaVersion": 1,
+  "date": "2026-08-22",
+  "timeZone": "Asia/Shanghai",
+  "segments": [],
+  "totalEventCount": 0
+}
+```
 
 每个 JSONL 文件生成后计算 SHA-256，并保存到 Room 的 `ArchiveSegmentEntity` 和 manifest。文件一旦封存不自动因晚到事件重新生成；晚到事件仍保留在 Room 中。

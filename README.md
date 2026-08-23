@@ -19,6 +19,11 @@ Room 仍是应用本地实时数据源；JSONL 是长期归档格式。云端同
 
 支持 GitHub Private Repository、Google Drive，以及两个 backend 同时同步。
 
+GitHub 使用无需 `client_secret` 的 Device Flow，连接后自动维护私有的
+`PersonalRecorder-Archive` 仓库，并将一个同步批次合并为一个 Git commit。
+Google Drive 使用 `AuthorizationClient` 的 `drive.file` scope；后台每次按需获取
+有效 access token，不把短期 token 作为长期凭据保存。
+
 Archive 固定为：
 
 - `00-12.jsonl`
