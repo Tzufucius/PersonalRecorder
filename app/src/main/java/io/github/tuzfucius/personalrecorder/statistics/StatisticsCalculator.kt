@@ -43,6 +43,7 @@ class StatisticsCalculator(
         val maxHourlyCount = hourlyCounts.maxOfOrNull { it.count } ?: 0
         val detailsForState = details.asSequence()
             .filter { it.isEligible(ownPackageName, settings) }
+            .filter { Instant.ofEpochMilli(it.timestamp).atZone(zone).toLocalDate() in dateSet }
             .filter { selection.matches(it.asRow(), zone) }
             .sortedByDescending { it.timestamp }
             .take(MAX_DETAILS)
