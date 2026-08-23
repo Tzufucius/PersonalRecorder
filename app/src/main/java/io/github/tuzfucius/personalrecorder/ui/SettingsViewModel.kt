@@ -138,6 +138,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun setHideFromRecents(enabled: Boolean) {
+        viewModelScope.launch {
+            backgroundSettingsStore.setHideFromRecents(enabled)
+        }
+    }
+
     private fun discoverAfterConnect() {
         viewModelScope.launch {
             val inventory = CloudSyncRuntime.discoverRemote(context, ReconcileMode.FULL_RESTORE) ?: return@launch

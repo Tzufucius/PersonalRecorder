@@ -40,6 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,6 +56,8 @@ import io.github.tuzfucius.personalrecorder.sync.CloudBackendType
 import io.github.tuzfucius.personalrecorder.sync.GitHubRepository
 import io.github.tuzfucius.personalrecorder.sync.SyncFrequency
 import io.github.tuzfucius.personalrecorder.background.BackgroundRuntimeState
+import io.github.tuzfucius.personalrecorder.background.BackgroundDiagnostics
+import io.github.tuzfucius.personalrecorder.data.ArchiveConflictEntity
 import java.text.DateFormat
 import java.util.Date
 
@@ -79,6 +82,9 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel? = null) {
     val workInfos by viewModel.scheduler.observeNowWork().collectAsStateWithLifecycle(initialValue = emptyList())
     val runtimeState by viewModel.runtimeStateStore.state.collectAsStateWithLifecycle(initialValue = BackgroundRuntimeState())
     val statusNotificationEnabled by viewModel.backgroundSettingsStore.statusNotificationEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val hideFromRecents by viewModel.backgroundSettingsStore.hideFromRecents.collectAsStateWithLifecycle(initialValue = false)
+    val conflicts by remember(dao) { dao.getUnresolvedConflicts() }
+        .collectAsStateWithLifecycle(initialValue = emptyList())
     val conflictCount by remember(dao) { dao.getUnresolvedConflictCount() }
         .collectAsStateWithLifecycle(initialValue = 0)
     val connecting by viewModel.connecting.collectAsStateWithLifecycle()
@@ -91,6 +97,7 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel? = null) {
         if (granted) viewModel.setStatusNotificationEnabled(true)
     }
     var token by remember { mutableStateOf("") }
+    var showConflictDetails by rememberSaveable { mutableStateOf(false) }
     var repository by remember(settings?.githubRepository) {
         mutableStateOf(settings?.githubRepository ?: GitHubRepository.DEFAULT_NAME)
     }
@@ -143,6 +150,8 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel? = null) {
                     runtimeState = runtimeState,
                     githubConnected = currentSettings.githubConnected,
                     statusNotificationEnabled = statusNotificationEnabled,
+                    hideFromRecents = hideFromRecents,
+                    conflicts = conflicts,
                     onStatusNotificationChange = { enabled ->
                         if (enabled && Build.VERSION.SDK_INT >= 33) {
                             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -151,7 +160,17 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel? = null) {
                         }
                     },
                     onSync = viewModel::enqueueNow,
+                    onHideFromRecentsChange = viewModel::setHideFromRecents,
+                    onShowConflicts = { showConflictDetails = true },
                 )
+            }
+            if (showConflictDetails) {
+                item {
+                    ConflictDetailsCard(
+                        conflicts = conflicts,
+                        onClose = { showConflictDetails = false },
+                    )
+                }
             }
             item { FrequencyCard(currentSettings.frequency, viewModel::setFrequency) }
             message?.let { current ->
@@ -361,10 +380,15 @@ private fun BackgroundDiagnosticsCard(
     runtimeState: BackgroundRuntimeState,
     githubConnected: Boolean,
     statusNotificationEnabled: Boolean,
+    hideFromRecents: Boolean,
+    conflicts: List<ArchiveConflictEntity>,
     onStatusNotificationChange: (Boolean) -> Unit,
     onSync: () -> Unit,
+    onHideFromRecentsChange: (Boolean) -> Unit,
+    onShowConflicts: () -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val diagnostics = remember(context) { BackgroundDiagnostics.read(context) }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("后台运行", style = MaterialTheme.typography.titleMedium)
@@ -372,12 +396,27 @@ private fun BackgroundDiagnosticsCard(
             StatusLine("GitHub", githubConnected, if (githubConnected) "已连接" else "未连接")
             Text("待上传：${runtimeState.pendingUploads}    待下载：${runtimeState.pendingDownloads}")
             Text("冲突：${runtimeState.conflicts}")
+            if (conflicts.isNotEmpty()) {
+                OutlinedButton(onClick = onShowConflicts) { Text("查看冲突详情 (${conflicts.size})") }
+            }
             Text("最近采集：${formatSyncTime(runtimeState.lastEventAt)}")
             Text("最近健康检查：${formatSyncTime(runtimeState.lastHealthCheckAt)}")
+            Text(
+                "电池优化：${if (diagnostics.batteryOptimizationIgnored) "已忽略" else "仍受限制"}",
+                color = if (diagnostics.batteryOptimizationIgnored) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            )
+            Text("设备：${diagnostics.manufacturer} ${diagnostics.model}")
+            diagnostics.vendorGuidance?.let {
+                Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+            }
             runtimeState.lastSyncError?.let { Text("最近错误：$it", color = MaterialTheme.colorScheme.error) }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("后台状态通知", modifier = Modifier.weight(1f))
                 Switch(checked = statusNotificationEnabled, onCheckedChange = onStatusNotificationChange)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("从最近任务隐藏", modifier = Modifier.weight(1f))
+                Switch(checked = hideFromRecents, onCheckedChange = onHideFromRecentsChange)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = {
@@ -385,7 +424,7 @@ private fun BackgroundDiagnosticsCard(
                 }) { Text("通知访问设置") }
                 OutlinedButton(onClick = {
                     context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                }) { Text("电池设置") }
+                }) { Text("电池优化设置") }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = {
@@ -400,6 +439,41 @@ private fun BackgroundDiagnosticsCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )
+        }
+    }
+}
+
+@Composable
+private fun ConflictDetailsCard(
+    conflicts: List<ArchiveConflictEntity>,
+    onClose: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text("未解决的归档冲突", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                TextButton(onClick = onClose) { Text("收起") }
+            }
+            if (conflicts.isEmpty()) {
+                Text("暂无未解决冲突", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                conflicts.forEach { conflict ->
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(conflict.relativePath, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            conflict.summary,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            "本地：${conflict.localFilePath}  远端：${conflict.remoteFilePath}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    if (conflict != conflicts.last()) HorizontalDivider()
+                }
+            }
         }
     }
 }

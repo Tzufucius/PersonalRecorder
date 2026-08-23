@@ -29,6 +29,9 @@ data class BackgroundRuntimeState(
     val lastFatalErrorTime: Long? = null,
     val lastFatalComponent: String? = null,
     val lastFatalSummary: String? = null,
+    val batteryOptimizationIgnored: Boolean? = null,
+    val oemManufacturer: String? = null,
+    val oemVendorManagedBackground: Boolean? = null,
 )
 
 class BackgroundRuntimeStateStore(context: Context) {
@@ -52,6 +55,9 @@ class BackgroundRuntimeStateStore(context: Context) {
                 lastFatalErrorTime = preferences[LAST_FATAL_ERROR_TIME],
                 lastFatalComponent = preferences[LAST_FATAL_COMPONENT],
                 lastFatalSummary = preferences[LAST_FATAL_SUMMARY],
+                batteryOptimizationIgnored = preferences[BATTERY_OPTIMIZATION_IGNORED],
+                oemManufacturer = preferences[OEM_MANUFACTURER],
+                oemVendorManagedBackground = preferences[OEM_VENDOR_MANAGED_BACKGROUND],
             )
         }
         .catch { emit(BackgroundRuntimeState()) }
@@ -103,6 +109,14 @@ class BackgroundRuntimeStateStore(context: Context) {
         }
     }
 
+    suspend fun updateDeviceDiagnostics(diagnostics: BatteryOemDiagnostics) {
+        appContext.backgroundRuntimeDataStore.edit { preferences ->
+            preferences[BATTERY_OPTIMIZATION_IGNORED] = diagnostics.batteryOptimizationIgnored
+            preferences[OEM_MANUFACTURER] = diagnostics.manufacturer.take(80)
+            preferences[OEM_VENDOR_MANAGED_BACKGROUND] = diagnostics.vendorManagedBackground
+        }
+    }
+
     private suspend fun setLong(key: androidx.datastore.preferences.core.Preferences.Key<Long>, value: Long) {
         appContext.backgroundRuntimeDataStore.edit { preferences -> preferences[key] = value }
     }
@@ -123,5 +137,8 @@ class BackgroundRuntimeStateStore(context: Context) {
         val LAST_FATAL_ERROR_TIME = longPreferencesKey("last_fatal_error_time")
         val LAST_FATAL_COMPONENT = stringPreferencesKey("last_fatal_component")
         val LAST_FATAL_SUMMARY = stringPreferencesKey("last_fatal_summary")
+        val BATTERY_OPTIMIZATION_IGNORED = booleanPreferencesKey("battery_optimization_ignored")
+        val OEM_MANUFACTURER = stringPreferencesKey("oem_manufacturer")
+        val OEM_VENDOR_MANAGED_BACKGROUND = booleanPreferencesKey("oem_vendor_managed_background")
     }
 }

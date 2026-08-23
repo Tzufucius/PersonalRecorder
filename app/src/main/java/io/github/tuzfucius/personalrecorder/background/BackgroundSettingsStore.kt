@@ -15,11 +15,19 @@ class BackgroundSettingsStore(context: Context) {
     val statusNotificationEnabled: Flow<Boolean> = appContext.backgroundSettingsDataStore.data
         .map { it[STATUS_NOTIFICATION_ENABLED] ?: false }
 
+    val hideFromRecents: Flow<Boolean> = appContext.backgroundSettingsDataStore.data
+        .map { it[HIDE_FROM_RECENTS] ?: false }
+
     suspend fun setStatusNotificationEnabled(enabled: Boolean) {
         appContext.backgroundSettingsDataStore.edit { it[STATUS_NOTIFICATION_ENABLED] = enabled }
     }
 
+    suspend fun setHideFromRecents(enabled: Boolean) {
+        appContext.backgroundSettingsDataStore.edit { it[HIDE_FROM_RECENTS] = enabled }
+    }
+
     private companion object {
         val STATUS_NOTIFICATION_ENABLED = booleanPreferencesKey("status_notification_enabled")
+        val HIDE_FROM_RECENTS = booleanPreferencesKey("hide_from_recents")
     }
 }

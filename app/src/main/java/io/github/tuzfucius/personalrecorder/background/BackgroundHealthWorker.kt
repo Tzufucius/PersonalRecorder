@@ -32,6 +32,7 @@ class BackgroundHealthWorker(
         val context = applicationContext
         val runtime = BackgroundRuntimeStateStore(context)
         val database = AppDatabase.getInstance(context)
+        runtime.updateDeviceDiagnostics(BackgroundDiagnostics.read(context))
         val listenerEnabled = NotificationManagerCompat.getEnabledListenerPackages(context)
             .contains(context.packageName)
         val current = runtime.state.first()
@@ -59,7 +60,13 @@ class BackgroundHealthWorker(
             runtime.markSyncError("GitHub 尚未连接")
         }
         Result.success()
-    }.getOrElse { Result.retry() }
+    }.getOrElse { error ->
+        BackgroundRuntimeStateStore(applicationContext).recordFatal(
+            component = "BackgroundHealthWorker",
+            summary = error.message ?: error::class.java.simpleName,
+        )
+        Result.retry()
+    }
 
     companion object {
         private const val PERIODIC_NAME = "background_health_check"
