@@ -476,7 +476,7 @@ private fun ConflictDetailsCard(
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(conflict.relativePath, style = MaterialTheme.typography.bodyMedium)
                         Text(
-                            "segment：${conflict.segmentId}  创建：${formatSyncTime(conflict.createdAt)}",
+                            "日期：${conflict.relativePath.split('/').getOrNull(3) ?: "未知"}  segment：${conflict.segmentId}  冲突数：${conflict.summary.substringAfter("发现 ").substringBefore(" 个").ifBlank { "未知" }}  创建：${formatSyncTime(conflict.createdAt)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
