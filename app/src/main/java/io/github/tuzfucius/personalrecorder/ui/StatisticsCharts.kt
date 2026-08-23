@@ -71,6 +71,7 @@ fun HourlyChart(
         bottomAxis = HorizontalAxis.rememberBottom(),
     )
     val selectionColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+    val axisInsetPx = with(LocalDensity.current) { 48.dp.toPx() }
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -81,19 +82,19 @@ fun HourlyChart(
                     if (index >= 0) drawRect(
                         color = selectionColor,
                         topLeft = androidx.compose.ui.geometry.Offset(
-                            plotLeftPx(size.width.toFloat()) + plotWidthPx(size.width.toFloat(), values.size) * index.toFloat() / values.size,
+                            plotLeftPx(size.width.toFloat(), axisInsetPx) + plotWidthPx(size.width.toFloat(), values.size, axisInsetPx) * index.toFloat() / values.size,
                             0f,
                         ),
                         size = androidx.compose.ui.geometry.Size(
-                            plotWidthPx(size.width.toFloat(), values.size) / values.size,
+                            plotWidthPx(size.width.toFloat(), values.size, axisInsetPx) / values.size,
                             size.height.toFloat(),
                         ),
                     )
                 }
             }
-            .pointerInput(values) {
+            .pointerInput(values, axisInsetPx) {
                 detectTapGestures { offset ->
-                    mapPlotXToIndex(offset.x, size.width.toFloat(), values.size)?.let { onHourClick(values[it].hour) }
+                    mapPlotXToIndex(offset.x, size.width.toFloat(), values.size, axisInsetPx)?.let { onHourClick(values[it].hour) }
                 }
             }
             .semantics {
@@ -125,6 +126,7 @@ fun DailyTrendChart(
         bottomAxis = HorizontalAxis.rememberBottom(),
     )
     val selectionColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+    val axisInsetPx = with(LocalDensity.current) { 48.dp.toPx() }
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -135,19 +137,19 @@ fun DailyTrendChart(
                     if (index >= 0) drawRect(
                         color = selectionColor,
                         topLeft = androidx.compose.ui.geometry.Offset(
-                            plotLeftPx(size.width.toFloat()) + plotWidthPx(size.width.toFloat(), values.size) * index.toFloat() / values.size,
+                            plotLeftPx(size.width.toFloat(), axisInsetPx) + plotWidthPx(size.width.toFloat(), values.size, axisInsetPx) * index.toFloat() / values.size,
                             0f,
                         ),
                         size = androidx.compose.ui.geometry.Size(
-                            plotWidthPx(size.width.toFloat(), values.size) / values.size,
+                            plotWidthPx(size.width.toFloat(), values.size, axisInsetPx) / values.size,
                             size.height.toFloat(),
                         ),
                     )
                 }
             }
-            .pointerInput(values) {
+            .pointerInput(values, axisInsetPx) {
                 detectTapGestures { offset ->
-                    mapPlotXToIndex(offset.x, size.width.toFloat(), values.size)?.let { onDateClick(values[it].date) }
+                    mapPlotXToIndex(offset.x, size.width.toFloat(), values.size, axisInsetPx)?.let { onDateClick(values[it].date) }
                 }
             }
             .semantics {
@@ -159,16 +161,16 @@ fun DailyTrendChart(
     }
 }
 
-private fun plotLeftPx(width: Float): Float = 48f.coerceAtMost(width / 3f)
+private fun plotLeftPx(width: Float, insetPx: Float = 48f): Float = insetPx.coerceAtMost(width / 3f)
 
-private fun plotWidthPx(width: Float, itemCount: Int): Float =
-    (width - plotLeftPx(width) - 8f).coerceAtLeast(itemCount.toFloat())
+private fun plotWidthPx(width: Float, itemCount: Int, insetPx: Float = 48f): Float =
+    (width - plotLeftPx(width, insetPx) - 8f).coerceAtLeast(itemCount.toFloat())
 
 /** Maps a touch to a chart item using the axis plot bounds, not a full-width overlay. */
-internal fun mapPlotXToIndex(x: Float, width: Float, itemCount: Int): Int? {
+internal fun mapPlotXToIndex(x: Float, width: Float, itemCount: Int, insetPx: Float = 48f): Int? {
     if (itemCount <= 0) return null
-    val left = plotLeftPx(width)
-    val plotWidth = plotWidthPx(width, itemCount)
+    val left = plotLeftPx(width, insetPx)
+    val plotWidth = plotWidthPx(width, itemCount, insetPx)
     if (x < left || x >= left + plotWidth) return null
     return ((x - left) / plotWidth * itemCount).toInt().coerceIn(0, itemCount - 1)
 }
