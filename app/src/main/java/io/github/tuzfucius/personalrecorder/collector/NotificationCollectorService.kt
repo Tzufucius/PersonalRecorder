@@ -21,6 +21,34 @@ class NotificationCollectorService : NotificationListenerService() {
     private val database by lazy { AppDatabase.getInstance(applicationContext) }
     private val filterSettingsStore by lazy { FilterSettingsStore(applicationContext) }
     private val runtimeStateStore by lazy { BackgroundRuntimeStateStore(applicationContext) }
+    private val sourceRegistry by lazy {
+        NotificationSourceRegistry(
+            dao = database.notificationSourceDao(),
+            metadataResolver = AndroidNotificationSourceMetadataResolver(applicationContext),
+        )
+    }
+    private val collectorPipeline by lazy {
+        NotificationCollectorPipeline(
+            ownPackageName = applicationContext.packageName,
+            observeSource = sourceRegistry::observe,
+            persistEvent = { event ->
+                database.eventDao().insertEvent(EventEntity.fromPersonalEvent(event))
+                runtimeStateStore.markEvent()
+            },
+            onSourceObserved = { packageName ->
+                Log.i(TAG, "Notification source observed: package=$packageName")
+            },
+            onSourceObservationFailure = { packageName, error ->
+                Log.w(TAG, "Unable to register notification source: package=$packageName", error)
+            },
+            onSettingsReadFailure = { error ->
+                Log.w(TAG, "Unable to read notification filter settings", error)
+            },
+            onEventPersistenceFailure = { error ->
+                Log.w(TAG, "Unable to persist notification event", error)
+            },
+        )
+    }
 
     override fun onListenerConnected() {
         Log.i(TAG, "Notification listener connected")
@@ -44,18 +72,11 @@ class NotificationCollectorService : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         serviceScope.launch {
-            val settings = filterSettingsStore.readSettings().getOrNull() ?: run {
-                Log.w(TAG, "Unable to read notification filter settings")
-                return@launch
-            }
-            if (!NotificationFilter.shouldCollect(sbn, packageName, settings)) return@launch
-            val event = NotificationParser.parse(sbn) ?: return@launch
-            runCatching {
-                database.eventDao().insertEvent(EventEntity.fromPersonalEvent(event))
-                runtimeStateStore.markEvent()
-            }.onFailure { error ->
-                Log.w(TAG, "Unable to persist notification event", error)
-            }
+            collectorPipeline.collect(
+                packageName = sbn.packageName,
+                readSettings = filterSettingsStore::readSettings,
+                parseEvent = { NotificationParser.parse(sbn) },
+            )
         }
     }
 
