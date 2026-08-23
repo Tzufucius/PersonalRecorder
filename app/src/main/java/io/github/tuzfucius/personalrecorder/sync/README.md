@@ -1,11 +1,11 @@
 # 云端同步模块
 
-本目录定义云端同步的独立领域模型和后端适配边界。同步对象是已封存 JSONL 与 manifest 的不可变字节，不上传 Room 数据库。
+本目录定义 GitHub 私有归档同步的领域模型和窄后端边界。同步对象是已封存 JSONL 与 manifest 的不可变字节，不上传 Room 数据库。
 
 - `SyncModels.kt`：后端、频率、状态、结果与错误模型。
-- `SyncCoordinator.kt`：按归档和后端独立处理状态，临时网络问题指数退避重试，冲突和授权问题不重试。
+- `SyncCoordinator.kt`：按归档处理状态，跨时间重试由 WorkManager 负责。
 - `CloudSyncWorker.kt`：使用 WorkManager 网络约束进行尽力而为的周期调度，不承诺精确时间。
-- `GitHubDeviceFlow.kt`、`OkHttpGitHubApi.kt`、`GitHubSync.kt`：Device Flow、私有仓库连接、GitHub REST/Git Data API 和批量提交。
-- `GoogleDriveSync.kt`、`OkHttpGoogleDriveRestClient.kt`：`drive.file` 授权抽象、按需 token、401 刷新、REST v3 边界和应用自建目录 ID 缓存。
+- `GitHubSync.kt`、`GitHubArchiveClient.kt`：PAT 连接校验、私有仓库保护和 Contents API 幂等上传。
+- `CloudCredentialStore.kt`、`SecureSecretStore.kt`：仅通过 Android Keystore 保存 GitHub PAT。
 
-调用方负责将 archive 模块的封存记录转换为 `CloudArchive`，并以 Android Keystore 保护 GitHub token。Google access token 由 AuthorizationClient 按需获取，不写入本地长期凭据。不得把 secret 写入 APK、资源、日志或归档。
+调用方负责将 archive 模块的封存记录转换为 `CloudArchive`。不得把 PAT 写入 APK、资源、DataStore、Room、日志或归档。

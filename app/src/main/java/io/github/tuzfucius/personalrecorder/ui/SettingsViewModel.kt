@@ -1,37 +1,29 @@
 package io.github.tuzfucius.personalrecorder.ui
 
 import android.app.Application
-import androidx.work.WorkInfo
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import io.github.tuzfucius.personalrecorder.BuildConfig
+import androidx.work.WorkInfo
 import io.github.tuzfucius.personalrecorder.data.AppDatabase
+import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsState
 import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsStore
 import io.github.tuzfucius.personalrecorder.sync.CloudCredentialStore
 import io.github.tuzfucius.personalrecorder.sync.CloudSyncRuntime
-import io.github.tuzfucius.personalrecorder.sync.GitHubConnectionCoordinator
-import io.github.tuzfucius.personalrecorder.sync.GitHubDeviceCode
-import io.github.tuzfucius.personalrecorder.sync.GitHubDeviceFlowCoordinator
-import io.github.tuzfucius.personalrecorder.sync.GitHubDevicePollResult
 import io.github.tuzfucius.personalrecorder.sync.GitHubAccessTokenProvider
-import io.github.tuzfucius.personalrecorder.sync.OkHttpGitHubApi
-import io.github.tuzfucius.personalrecorder.sync.PlayServicesGoogleDriveAccessTokenProvider
-import io.github.tuzfucius.personalrecorder.sync.SyncScheduler
+import io.github.tuzfucius.personalrecorder.sync.GitHubArchiveClient
+import io.github.tuzfucius.personalrecorder.sync.GitHubConnectionCoordinator
+import io.github.tuzfucius.personalrecorder.sync.GitHubConnectionException
 import io.github.tuzfucius.personalrecorder.sync.SecureSecretStore
 import io.github.tuzfucius.personalrecorder.sync.SyncFrequency
+import io.github.tuzfucius.personalrecorder.sync.SyncScheduler
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-
-data class GitHubDeviceUiState(
-    val deviceCode: GitHubDeviceCode? = null,
-    val message: String? = null,
-    val completed: Boolean = false,
-)
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
     private val context = application.applicationContext
@@ -40,18 +32,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val scheduler: SyncScheduler = runCatching { CloudSyncRuntime.scheduler(context) }
         .getOrElse { NoOpSyncScheduler }
 
-    private val _githubDeviceState = MutableStateFlow<GitHubDeviceUiState?>(null)
-    val githubDeviceState: StateFlow<GitHubDeviceUiState?> = _githubDeviceState.asStateFlow()
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
+    private val _connecting = MutableStateFlow(false)
+    val connecting: StateFlow<Boolean> = _connecting.asStateFlow()
     private var githubJob: Job? = null
 
     fun setGithubEnabled(enabled: Boolean) = viewModelScope.launch {
         settingsStore.setGithubEnabled(enabled)
-    }
-
-    fun setGoogleDriveEnabled(enabled: Boolean) = viewModelScope.launch {
-        settingsStore.setGoogleDriveEnabled(enabled)
     }
 
     fun setFrequency(frequency: SyncFrequency) = viewModelScope.launch {
@@ -59,82 +47,48 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         scheduler.schedule(frequency)
     }
 
-    fun enqueueNow() {
-        scheduler.enqueueNow()
-    }
-
-    fun markGoogleDriveConnected() = viewModelScope.launch {
-        settingsStore.setGoogleDriveConnected(true)
-        _message.value = "Google Drive 已连接"
-    }
-
-    fun disconnectGoogleDrive() = viewModelScope.launch {
-        runCatching { PlayServicesGoogleDriveAccessTokenProvider(context).revokeAccess() }
-        CloudCredentialStore(context).clearGoogleDrive()
-        settingsStore.setGoogleDriveConnected(false)
-        settingsStore.setGoogleDriveEnabled(false)
-        _message.value = "Google Drive 已断开，本地归档与同步历史已保留"
-    }
-
-    fun startGithubDeviceFlow() {
+    fun connectGithub(token: String, repositoryName: String) {
         githubJob?.cancel()
-        val clientId = BuildConfig.GITHUB_CLIENT_ID.trim()
-        if (clientId.isBlank()) {
-            _message.value = "未配置 GitHub OAuth client ID"
-            return
-        }
         githubJob = viewModelScope.launch {
+            _connecting.value = true
+            _message.value = null
             val secrets = SecureSecretStore(context)
-            val api = OkHttpGitHubApi(
-                tokenProvider = GitHubAccessTokenProvider {
-                    secrets.get(CloudCredentialStore.GITHUB_ACCESS_TOKEN)
-                }
+            val coordinator = GitHubConnectionCoordinator(
+                clientFactory = { candidate ->
+                    GitHubArchiveClient(GitHubAccessTokenProvider { candidate })
+                },
+                secrets = secrets,
+                settings = settingsStore,
             )
-            val flow = GitHubDeviceFlowCoordinator(api)
-            runCatching {
-                val device = flow.requestDeviceCode(clientId)
-                _githubDeviceState.value = GitHubDeviceUiState(deviceCode = device)
-                when (val result = flow.pollForToken(clientId, device)) {
-                    is GitHubDevicePollResult.Authorized -> {
-                        val connected = GitHubConnectionCoordinator(api, api, secrets, settingsStore)
-                            .completeConnection(result.accessToken)
-                        connected.fold(
-                            onSuccess = { login ->
-                                _githubDeviceState.value = null
-                                _message.value = "GitHub 已连接：$login"
-                            },
-                            onFailure = { error ->
-                                _githubDeviceState.value = GitHubDeviceUiState(message = error.message)
-                            }
-                        )
+            coordinator.connect(token, repositoryName)
+                .onSuccess { login -> _message.value = "GitHub 已连接：$login" }
+                .onFailure { error ->
+                    _message.value = when (error) {
+                        is GitHubConnectionException -> error.message
+                        else -> "GitHub 连接失败"
                     }
-                    GitHubDevicePollResult.AccessDenied -> _githubDeviceState.value =
-                        GitHubDeviceUiState(message = "GitHub 授权已拒绝")
-                    GitHubDevicePollResult.Expired -> _githubDeviceState.value =
-                        GitHubDeviceUiState(message = "GitHub 验证码已过期，请重新连接")
-                    is GitHubDevicePollResult.Failed -> _githubDeviceState.value =
-                        GitHubDeviceUiState(message = result.message)
-                    GitHubDevicePollResult.Pending,
-                    is GitHubDevicePollResult.SlowDown -> Unit
                 }
-            }.onFailure { error ->
-                _githubDeviceState.value = GitHubDeviceUiState(message = error.message ?: "GitHub 连接失败")
-            }
+            _connecting.value = false
         }
-    }
-
-    fun cancelGithubDeviceFlow() {
-        githubJob?.cancel()
-        githubJob = null
-        _githubDeviceState.value = null
     }
 
     fun disconnectGithub() = viewModelScope.launch {
-        SecureSecretStore(context).remove(CloudCredentialStore.GITHUB_ACCESS_TOKEN)
+        CloudCredentialStore(context).clearGithub()
         settingsStore.setGithubUsername(null)
         settingsStore.setGithubConnected(false)
         settingsStore.setGithubEnabled(false)
         _message.value = "GitHub 已断开，本地归档与同步历史已保留"
+    }
+
+    fun enqueueNow() {
+        viewModelScope.launch {
+            val settings = (settingsStore.state.first() as? CloudSyncSettingsState.Ready)?.settings
+            if (settings == null || !settings.githubConnected) {
+                _message.value = "请先连接 GitHub"
+            } else {
+                scheduler.enqueueNow()
+            }
+        }
     }
 
     fun clearMessage() {
