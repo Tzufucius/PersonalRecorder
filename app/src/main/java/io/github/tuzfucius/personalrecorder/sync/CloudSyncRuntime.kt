@@ -1,6 +1,7 @@
 package io.github.tuzfucius.personalrecorder.sync
 
 import android.content.Context
+import io.github.tuzfucius.personalrecorder.background.BackgroundRuntimeStateStore
 import io.github.tuzfucius.personalrecorder.archive.ArchivePlanner
 import io.github.tuzfucius.personalrecorder.archive.ArchiveService
 import io.github.tuzfucius.personalrecorder.archive.ArchiveWriter
@@ -114,10 +115,29 @@ class ArchiveSyncRunner(
         reconcileGithub(backend, mode)
     }
 
+    suspend fun discoverRemote(mode: ReconcileMode = ReconcileMode.FULL_RESTORE): RemoteArchiveInventory? =
+        syncMutex.withLock {
+            val current = (settings.state.first() as? CloudSyncSettingsState.Ready)?.settings
+            if (current?.githubConnected != true || !current.githubEnabled) return@withLock null
+            val backend = backends.filterIsInstance<GitHubCloudSyncBackend>().firstOrNull()
+                ?: return@withLock null
+            ArchiveReconcileService(
+                filesDir = appContext.filesDir,
+                database = database,
+                api = backend.api,
+                repositoryProvider = backend.repositoryProvider,
+                zoneId = writer.zoneId,
+                deviceInstanceIdProvider = { DeviceIdentityStore(appContext).getOrCreateId() },
+                nowMillis = nowMillis,
+            ).discoverRemote(mode)
+        }
+
     private suspend fun reconcileGithub(
         backend: GitHubCloudSyncBackend,
         mode: ReconcileMode,
     ): ReconcileReport {
+        val runtimeState = BackgroundRuntimeStateStore(appContext)
+        runtimeState.markSyncAttempt(nowMillis())
         val report = ArchiveReconcileService(
             filesDir = appContext.filesDir,
             database = database,
@@ -130,6 +150,13 @@ class ArchiveSyncRunner(
         if (report.results.any { it.error is SyncError.Authentication }) {
             settings.setGithubConnected(false)
         }
+        val reportError = report.results.firstOrNull { it.error != null }?.error?.message
+        if (reportError != null) runtimeState.markSyncError(reportError) else runtimeState.markSyncSuccess(nowMillis())
+        runtimeState.updateCounts(
+            pendingUploads = database.eventDao().countPendingUploads(CloudBackendType.GITHUB.name),
+            pendingDownloads = database.eventDao().countPendingDownloads(CloudBackendType.GITHUB.name),
+            conflicts = database.eventDao().getUnresolvedConflictCount().first(),
+        )
         return report
     }
 
@@ -241,6 +268,7 @@ class ArchiveSyncRunner(
             existingSegmentIds = dao.getArchivedSegmentIds().toSet(),
         )
         missingDates.forEach { archiveService.archiveDay(it) }
+        if (missingDates.isNotEmpty()) BackgroundRuntimeStateStore(appContext).markArchive(nowMillis())
     }
 
     private suspend fun pendingManifests(backendType: CloudBackendType, force: Boolean): List<ManifestUpload> {
@@ -310,6 +338,11 @@ object CloudSyncRuntime {
         context: Context,
         mode: ReconcileMode = ReconcileMode.INCREMENTAL,
     ): ReconcileReport = ensureConfigured(context).runReconcile(mode)
+
+    suspend fun discoverRemote(
+        context: Context,
+        mode: ReconcileMode = ReconcileMode.FULL_RESTORE,
+    ): RemoteArchiveInventory? = ensureConfigured(context).discoverRemote(mode)
 
     fun scheduler(context: Context): SyncScheduler = WorkManagerSyncScheduler(context)
 

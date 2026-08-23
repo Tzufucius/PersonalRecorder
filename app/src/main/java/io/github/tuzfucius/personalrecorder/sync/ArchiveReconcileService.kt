@@ -48,6 +48,17 @@ class ArchiveReconcileService(
     private val localScanner = LocalArchiveInventoryScanner(filesDir)
     private val importer = ArchiveImportService(database, reconciler)
 
+    suspend fun discoverRemote(mode: ReconcileMode = ReconcileMode.FULL_RESTORE): RemoteArchiveInventory? {
+        val repository = repositoryProvider() ?: return null
+        val localDates = localScanner.scan().descriptors.map { it.date }.toSet()
+        return RemoteArchiveInventoryScanner(
+            api = api,
+            repository = repository,
+            zoneId = zoneId,
+            nowMillis = nowMillis,
+        ).discover(mode, localDates)
+    }
+
     suspend fun reconcile(mode: ReconcileMode = ReconcileMode.INCREMENTAL): ReconcileReport {
         var attempt = 0
         while (true) {

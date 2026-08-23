@@ -97,6 +97,21 @@ interface EventDao {
     @Query("SELECT COUNT(*) FROM archive_conflicts WHERE resolved = 0")
     fun getUnresolvedConflictCount(): Flow<Int>
 
+    @Query(
+        "SELECT COUNT(*) FROM archive_sync_states WHERE backend = :backend " +
+            "AND status IN ('PENDING', 'PENDING_UPLOAD')"
+    )
+    suspend fun countPendingUploads(backend: String): Int
+
+    @Query(
+        "SELECT COUNT(*) FROM archive_sync_states WHERE backend = :backend " +
+            "AND status = 'PENDING_DOWNLOAD'"
+    )
+    suspend fun countPendingDownloads(backend: String): Int
+
+    @Query("SELECT COUNT(*) FROM events WHERE timestamp >= :startMillis AND timestamp < :endMillis")
+    suspend fun countEventsBetween(startMillis: Long, endMillis: Long): Int
+
     @Query("SELECT * FROM archive_conflicts WHERE resolved = 0 ORDER BY createdAt DESC")
     fun getUnresolvedConflicts(): Flow<List<ArchiveConflictEntity>>
 
