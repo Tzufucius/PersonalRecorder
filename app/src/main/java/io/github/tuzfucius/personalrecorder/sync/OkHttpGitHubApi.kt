@@ -95,7 +95,7 @@ class OkHttpGitHubApi(
         val details = parseRepository(executeJson(authorizedRequest(repositoryUrl(repository)).get().build()))
         val refName = "heads/${details.defaultBranch}"
         val ref = executeJson(
-            authorizedRequest("${repositoryUrl(repository)}/git/ref/${encodePath(refName)}").get().build()
+            authorizedRequest("${repositoryUrl(repository)}/git/ref/${encodeRef(refName)}").get().build()
         )
         val commitSha = ref.getValue("object").jsonObject.getValue("sha").jsonPrimitive.content
         val commit = executeJson(
@@ -186,7 +186,7 @@ class OkHttpGitHubApi(
                 put("force", false)
             }.toString()
             executeJson(
-                authorizedRequest("${repositoryUrl(repository)}/git/refs/${encodePath(ref)}")
+                authorizedRequest("${repositoryUrl(repository)}/git/refs/${encodeRef(ref)}")
                     .method("PATCH", body.toRequestBody(JSON_MEDIA_TYPE))
                     .build()
             )
@@ -230,6 +230,8 @@ class OkHttpGitHubApi(
         "$API_BASE/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}"
 
     private fun encodePath(value: String): String = URLEncoder.encode(value, Charsets.UTF_8.name())
+
+    private fun encodeRef(ref: String): String = ref.split('/').joinToString("/") { encodePath(it) }
 
     private companion object {
         const val API_BASE = "https://api.github.com"
