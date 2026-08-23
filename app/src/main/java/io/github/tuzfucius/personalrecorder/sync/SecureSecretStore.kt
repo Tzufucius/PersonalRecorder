@@ -11,11 +11,17 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/** Encrypts OAuth tokens and temporary PKCE material with an Android Keystore AES key. */
-class SecureSecretStore(context: Context, private val alias: String = DEFAULT_ALIAS) {
+interface SecretStore {
+    fun put(name: String, value: String)
+    fun get(name: String): String?
+    fun remove(name: String)
+}
+
+/** Encrypts the GitHub access token with an Android Keystore AES key. */
+class SecureSecretStore(context: Context, private val alias: String = DEFAULT_ALIAS) : SecretStore {
     private val preferences = context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
-    fun put(name: String, value: String) {
+    override fun put(name: String, value: String) {
         val cipher = Cipher.getInstance(TRANSFORMATION).apply {
             init(Cipher.ENCRYPT_MODE, key())
         }
@@ -25,7 +31,7 @@ class SecureSecretStore(context: Context, private val alias: String = DEFAULT_AL
         preferences.edit().putString(name, encoded).apply()
     }
 
-    fun get(name: String): String? = preferences.getString(name, null)?.let { encoded ->
+    override fun get(name: String): String? = preferences.getString(name, null)?.let { encoded ->
         val parts = encoded.split(":", limit = 2)
         if (parts.size != 2) return null
         val iv = Base64.getDecoder().decode(parts[0])
@@ -37,7 +43,7 @@ class SecureSecretStore(context: Context, private val alias: String = DEFAULT_AL
         }.getOrNull()
     }
 
-    fun remove(name: String) {
+    override fun remove(name: String) {
         preferences.edit().remove(name).apply()
     }
 

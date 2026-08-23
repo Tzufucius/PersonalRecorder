@@ -28,6 +28,7 @@ class ArchiveWriterTest {
             assertEquals("", it.file.readText())
         }
         assertTrue(requireNotNull(result.manifest).exists())
+        assertTrue(requireNotNull(result.manifest).readText().contains("\"schemaVersion\":1"))
     }
 
     @Test

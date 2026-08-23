@@ -54,6 +54,7 @@ data class ArchivedEvent(
 
 @Serializable
 data class ArchiveManifest(
+    val schemaVersion: Int = 1,
     val date: String,
     val timeZone: String,
     val segments: List<ArchiveManifestSegment>,

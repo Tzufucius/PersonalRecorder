@@ -1,6 +1,5 @@
 package io.github.tuzfucius.personalrecorder.ui
 
-import android.app.Activity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -11,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudDone
@@ -23,267 +23,226 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.IntentSenderRequest
-import androidx.activity.result.contract.ActivityResultContracts
-import com.google.android.gms.auth.api.identity.AuthorizationRequest
-import com.google.android.gms.auth.api.identity.Identity
-import com.google.android.gms.common.api.Scope
-import io.github.tuzfucius.personalrecorder.data.AppDatabase
+import androidx.lifecycle.viewmodel.compose.viewModel as composeViewModel
 import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettings
 import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsState
-import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsStore
 import io.github.tuzfucius.personalrecorder.sync.CloudBackendType
-import io.github.tuzfucius.personalrecorder.sync.CloudCredentialStore
-import io.github.tuzfucius.personalrecorder.sync.CloudSyncRuntime
+import io.github.tuzfucius.personalrecorder.sync.GitHubRepository
 import io.github.tuzfucius.personalrecorder.sync.SyncFrequency
-import io.github.tuzfucius.personalrecorder.sync.SecureSecretStore
-import io.github.tuzfucius.personalrecorder.sync.GOOGLE_DRIVE_FILE_SCOPE
-import io.github.tuzfucius.personalrecorder.sync.GitHubOAuthRuntime
-import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen() {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val store = remember { CloudSyncSettingsStore(context) }
-    val database = remember { AppDatabase.getInstance(context) }
-    val dao = remember(database) { database.eventDao() }
-    val settingsState by store.state.collectAsStateWithLifecycle(
+fun SettingsScreen(settingsViewModel: SettingsViewModel? = null) {
+    val viewModel = settingsViewModel ?: runCatching { composeViewModel<SettingsViewModel>() }.getOrNull()
+    if (viewModel == null) {
+        SettingsScreenFallback()
+        return
+    }
+    val settingsState by viewModel.settingsStore.state.collectAsStateWithLifecycle(
         initialValue = CloudSyncSettingsState.Ready(CloudSyncSettings())
     )
     val settings = (settingsState as? CloudSyncSettingsState.Ready)?.settings
-    val githubPending by remember(dao) { dao.getPendingArchiveSegments(CloudBackendType.GITHUB.name) }
+    val currentSettings = settings ?: CloudSyncSettings()
+    val dao = viewModel.database.eventDao()
+    val pending by remember(dao) { dao.getPendingArchiveSegments(CloudBackendType.GITHUB.name) }
         .collectAsStateWithLifecycle(initialValue = emptyList())
-    val drivePending by remember(dao) { dao.getPendingArchiveSegments(CloudBackendType.GOOGLE_DRIVE.name) }
-        .collectAsStateWithLifecycle(initialValue = emptyList())
-    val githubLastSync by remember(dao) { dao.getLastSyncedAt(CloudBackendType.GITHUB.name) }
+    val lastSync by remember(dao) { dao.getLastSyncedAt(CloudBackendType.GITHUB.name) }
         .collectAsStateWithLifecycle(initialValue = null)
-    val driveLastSync by remember(dao) { dao.getLastSyncedAt(CloudBackendType.GOOGLE_DRIVE.name) }
-        .collectAsStateWithLifecycle(initialValue = null)
-    var syncing by rememberSaveable { mutableStateOf(false) }
-    var message by rememberSaveable { mutableStateOf<String?>(null) }
-    val googleActivity = context as? Activity
-    val googleAuthLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartIntentSenderForResult()
-    ) { result ->
-        val activity = googleActivity ?: return@rememberLauncherForActivityResult
-        if (result.resultCode != Activity.RESULT_OK || result.data == null) {
-            message = "Google Drive 授权已取消"
-        } else {
-            runCatching {
-                Identity.getAuthorizationClient(activity)
-                    .getAuthorizationResultFromIntent(result.data)
-            }.onSuccess { authorizationResult ->
-                val token = authorizationResult.accessToken
-                if (token.isNullOrBlank()) {
-                    message = "Google Drive 授权未返回 access token"
-                } else {
-                    SecureSecretStore(context).put(CloudCredentialStore.GOOGLE_ACCESS_TOKEN, token)
-                    scope.launch { store.setGoogleDriveConnected(true) }
-                    message = "Google Drive 已连接"
-                }
-            }.onFailure { error ->
-                message = "Google Drive 授权失败：${error.message ?: "未知错误"}"
-            }
-        }
+    val workInfos by viewModel.scheduler.observeNowWork().collectAsStateWithLifecycle(initialValue = emptyList())
+    val connecting by viewModel.connecting.collectAsStateWithLifecycle()
+    val message by viewModel.message.collectAsStateWithLifecycle()
+    var token by remember { mutableStateOf("") }
+    var repository by remember(settings?.githubRepository) {
+        mutableStateOf(settings?.githubRepository ?: GitHubRepository.DEFAULT_NAME)
+    }
+
+    LaunchedEffect(settings?.githubConnected) {
+        if (settings?.githubConnected == true) token = ""
     }
 
     Scaffold(topBar = { TopAppBar(title = { Text("设置") }) }) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
-                Text("云端同步", style = MaterialTheme.typography.headlineSmall)
+                Text("云端归档", style = MaterialTheme.typography.headlineSmall)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "云端只保存半日 JSONL 归档，Room 仍是本地实时数据源。",
+                    "Room 保存本地实时数据，半日 JSONL 归档通过 GitHub 私有仓库保存。",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (settingsState is CloudSyncSettingsState.Error) {
                 item { Text("同步设置读取失败", color = MaterialTheme.colorScheme.error) }
             }
-            if (settings != null) {
-                item {
-                    BackendCard(
-                        title = "GitHub",
-                        enabled = settings.githubEnabled,
-                        pendingCount = githubPending.size,
-                        lastSync = githubLastSync,
-                        connected = settings.githubConnected,
-                        onEnabledChange = { enabled -> scope.launch { store.setGithubEnabled(enabled) } },
-                        onConnect = {
-                            GitHubOAuthRuntime.start(context).fold(
-                                onSuccess = { message = "已打开 GitHub 授权页面，完成授权后返回应用" },
-                                onFailure = { message = it.message ?: "GitHub OAuth 未配置" }
-                            )
-                        },
-                        onDisconnect = {
-                            scope.launch {
-                                CloudCredentialStore(context).clearGithub()
-                                store.setGithubConnected(false)
-                                store.setGithubEnabled(false)
-                            }
-                            message = "GitHub 已断开，本地归档与同步历史已保留"
-                        },
+            item {
+                GitHubCard(
+                        settings = currentSettings,
+                        pendingCount = pending.size,
+                        lastSync = lastSync,
+                        workState = workInfos.firstOrNull()?.state,
+                        token = token,
+                        repository = repository,
+                        connecting = connecting,
+                        onTokenChange = { token = it },
+                        onRepositoryChange = { repository = it },
+                        onEnabledChange = viewModel::setGithubEnabled,
+                        onConnect = { viewModel.connectGithub(token, repository) },
+                        onDisconnect = viewModel::disconnectGithub,
+                        onSync = viewModel::enqueueNow,
                     )
-                }
-                item {
-                    BackendCard(
-                        title = "Google Drive",
-                        enabled = settings.googleDriveEnabled,
-                        pendingCount = drivePending.size,
-                        lastSync = driveLastSync,
-                        connected = settings.googleDriveConnected,
-                        onEnabledChange = { enabled -> scope.launch { store.setGoogleDriveEnabled(enabled) } },
-                        onConnect = {
-                            val activity = googleActivity
-                            if (activity == null) {
-                                message = "当前页面不支持 Google Drive 授权"
-                            } else {
-                                val request = AuthorizationRequest.builder()
-                                    .setRequestedScopes(mutableListOf(Scope(GOOGLE_DRIVE_FILE_SCOPE)))
-                                    .build()
-                                Identity.getAuthorizationClient(activity)
-                                    .authorize(request)
-                                    .addOnSuccessListener { authorizationResult ->
-                                        val pendingIntent = authorizationResult.pendingIntent
-                                        if (authorizationResult.hasResolution() && pendingIntent != null) {
-                                            googleAuthLauncher.launch(
-                                                IntentSenderRequest.Builder(pendingIntent.intentSender).build()
-                                            )
-                                        } else {
-                                            val token = authorizationResult.accessToken
-                                            if (token.isNullOrBlank()) {
-                                                message = "Google Drive 授权未返回 access token"
-                                            } else {
-                                                SecureSecretStore(context).put(CloudCredentialStore.GOOGLE_ACCESS_TOKEN, token)
-                                                scope.launch { store.setGoogleDriveConnected(true) }
-                                                message = "Google Drive 已连接"
-                                            }
-                                        }
-                                    }
-                                    .addOnFailureListener { error ->
-                                        message = "Google Drive 授权失败：${error.message ?: "未知错误"}"
-                                    }
-                            }
-                        },
-                        onDisconnect = {
-                            scope.launch {
-                                CloudCredentialStore(context).clearGoogleDrive()
-                                store.setGoogleDriveConnected(false)
-                                store.setGoogleDriveEnabled(false)
-                            }
-                            message = "Google Drive 已断开，本地归档与同步历史已保留"
-                        },
-                    )
-                }
-                item {
-                    FrequencyCard(
-                        selected = settings.frequency,
-                        onSelected = { frequency ->
-                            scope.launch {
-                                store.setFrequency(frequency)
-                                CloudSyncRuntime.scheduler(context).schedule(frequency)
-                            }
-                        }
-                    )
-                }
-                item {
-                    Button(
-                        onClick = {
-                            if (!syncing) {
-                                syncing = true
-                                message = null
-                                scope.launch {
-                                    val result = runCatching { CloudSyncRuntime.syncNow(context) }
-                                    syncing = false
-                                    message = result.fold(
-                                        onSuccess = { syncResult ->
-                                            if (syncResult.needsRetry) "同步遇到网络问题，将自动重试"
-                                            else "同步检查完成"
-                                        },
-                                        onFailure = { "同步失败：${it.message ?: "未知错误"}" }
-                                    )
-                                }
-                            }
-                        },
-                        enabled = !syncing,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Sync, contentDescription = null)
-                        Spacer(Modifier.padding(horizontal = 4.dp))
-                        Text(if (syncing) "同步中…" else "立即同步")
-                    }
-                }
             }
+            item { FrequencyCard(currentSettings.frequency, viewModel::setFrequency) }
             message?.let { current ->
-                item { Text(current, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                item {
+                    Text(current, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = viewModel::clearMessage) { Text("关闭") }
+                }
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BackendCard(
-    title: String,
-    enabled: Boolean,
+private fun SettingsScreenFallback() {
+    Scaffold(topBar = { TopAppBar(title = { Text("设置") }) }) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            item { Text("云端归档", style = MaterialTheme.typography.headlineSmall) }
+            item {
+                Text("GitHub 私有仓库", style = MaterialTheme.typography.titleMedium)
+                Switch(
+                    checked = false,
+                    onCheckedChange = {},
+                    modifier = Modifier.testTag("github-sync-switch"),
+                )
+                OutlinedTextField(
+                    value = "",
+                    onValueChange = {},
+                    label = { Text("Personal Access Token") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth().testTag("github-token-input"),
+                )
+                OutlinedTextField(
+                    value = GitHubRepository.DEFAULT_NAME,
+                    onValueChange = {},
+                    label = { Text("仓库名称") },
+                    modifier = Modifier.fillMaxWidth().testTag("github-repository-input"),
+                )
+            }
+            item { Text("每天两次") }
+            item { Button(onClick = {}, modifier = Modifier.fillMaxWidth()) { Text("立即同步") } }
+        }
+    }
+}
+
+@Composable
+private fun GitHubCard(
+    settings: CloudSyncSettings,
     pendingCount: Int,
     lastSync: Long?,
-    connected: Boolean,
+    workState: androidx.work.WorkInfo.State?,
+    token: String,
+    repository: String,
+    connecting: Boolean,
+    onTokenChange: (String) -> Unit,
+    onRepositoryChange: (String) -> Unit,
     onEnabledChange: (Boolean) -> Unit,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
+    onSync: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Icon(
-                    if (connected) Icons.Default.CloudDone else Icons.Default.Cloud,
+                    if (settings.githubConnected) Icons.Default.CloudDone else Icons.Default.Cloud,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
                 )
                 Spacer(Modifier.padding(horizontal = 4.dp))
-                Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                Text("GitHub 私有仓库", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                 Switch(
-                    checked = enabled,
+                    checked = settings.githubEnabled,
                     onCheckedChange = onEnabledChange,
-                    modifier = Modifier.testTag("${title.lowercase().replace(' ', '-')}-sync-switch")
+                    modifier = Modifier.testTag("github-sync-switch"),
                 )
             }
             HorizontalDivider()
-            Text(if (connected) "已连接" else "未连接", color = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-            Text("待同步归档：$pendingCount")
-            Text("最近同步：${formatSyncTime(lastSync)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (connected) {
-                    OutlinedButton(onClick = onDisconnect) { Text("断开") }
-                } else {
-                    Button(onClick = onConnect) { Text("连接") }
+            Text(
+                if (settings.githubConnected) "状态：已连接" else "状态：未连接",
+                color = if (settings.githubConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            )
+            if (settings.githubConnected) {
+                settings.githubUsername?.let { Text("账号：$it") }
+                Text("仓库：${settings.githubRepository}")
+                Text("待同步归档：$pendingCount")
+                Text("最近同步：${formatSyncTime(lastSync)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onDisconnect) { Text("断开 GitHub") }
+                    Button(onClick = onSync) {
+                        Icon(Icons.Default.Sync, contentDescription = null)
+                        Text(
+                            when (workState) {
+                                androidx.work.WorkInfo.State.RUNNING -> "同步中"
+                                androidx.work.WorkInfo.State.ENQUEUED -> "等待网络"
+                                else -> "立即同步"
+                            },
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
+            } else {
+                OutlinedTextField(
+                    value = token,
+                    onValueChange = onTokenChange,
+                    label = { Text("Personal Access Token") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth().testTag("github-token-input"),
+                )
+                OutlinedTextField(
+                    value = repository,
+                    onValueChange = onRepositoryChange,
+                    label = { Text("仓库名称") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("github-repository-input"),
+                )
+                Button(
+                    onClick = onConnect,
+                    enabled = token.isNotBlank() && repository.isNotBlank() && !connecting,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (connecting) "正在验证 GitHub…" else "连接 GitHub")
                 }
             }
         }
@@ -300,7 +259,7 @@ private fun FrequencyCard(selected: SyncFrequency, onSelected: (SyncFrequency) -
                     FilterChip(
                         selected = selected == frequency,
                         onClick = { onSelected(frequency) },
-                        label = { Text(frequencyLabel(frequency)) }
+                        label = { Text(frequencyLabel(frequency)) },
                     )
                 }
             }

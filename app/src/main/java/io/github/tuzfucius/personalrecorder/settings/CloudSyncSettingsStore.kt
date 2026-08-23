@@ -5,6 +5,8 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import io.github.tuzfucius.personalrecorder.sync.GitHubConnectionSettings
+import io.github.tuzfucius.personalrecorder.sync.GitHubRepository
 import io.github.tuzfucius.personalrecorder.sync.SyncFrequency
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -14,10 +16,10 @@ private val Context.cloudSyncDataStore by preferencesDataStore(name = "cloud_syn
 
 data class CloudSyncSettings(
     val githubEnabled: Boolean = false,
-    val googleDriveEnabled: Boolean = false,
     val githubConnected: Boolean = false,
-    val googleDriveConnected: Boolean = false,
-    val frequency: SyncFrequency = SyncFrequency.TWICE_DAILY
+    val githubUsername: String? = null,
+    val githubRepository: String = GitHubRepository.DEFAULT_NAME,
+    val frequency: SyncFrequency = SyncFrequency.TWICE_DAILY,
 )
 
 sealed interface CloudSyncSettingsState {
@@ -25,7 +27,7 @@ sealed interface CloudSyncSettingsState {
     data class Error(val cause: Throwable) : CloudSyncSettingsState
 }
 
-class CloudSyncSettingsStore(context: Context) {
+class CloudSyncSettingsStore(context: Context) : GitHubConnectionSettings {
     private val appContext = context.applicationContext
 
     val state: Flow<CloudSyncSettingsState> = appContext.cloudSyncDataStore.data
@@ -33,12 +35,14 @@ class CloudSyncSettingsStore(context: Context) {
             CloudSyncSettingsState.Ready(
                 CloudSyncSettings(
                     githubEnabled = preferences[GITHUB_ENABLED] ?: false,
-                    googleDriveEnabled = preferences[GOOGLE_DRIVE_ENABLED] ?: false,
                     githubConnected = preferences[GITHUB_CONNECTED] ?: false,
-                    googleDriveConnected = preferences[GOOGLE_DRIVE_CONNECTED] ?: false,
+                    githubUsername = preferences[GITHUB_USERNAME],
+                    githubRepository = preferences[GITHUB_REPOSITORY]
+                        ?.takeIf(String::isNotBlank)
+                        ?: GitHubRepository.DEFAULT_NAME,
                     frequency = preferences[FREQUENCY]
                         ?.let { value -> runCatching { SyncFrequency.valueOf(value) }.getOrNull() }
-                        ?: SyncFrequency.TWICE_DAILY
+                        ?: SyncFrequency.TWICE_DAILY,
                 )
             ) as CloudSyncSettingsState
         }
@@ -48,16 +52,20 @@ class CloudSyncSettingsStore(context: Context) {
         appContext.cloudSyncDataStore.edit { it[GITHUB_ENABLED] = enabled }
     }
 
-    suspend fun setGoogleDriveEnabled(enabled: Boolean) {
-        appContext.cloudSyncDataStore.edit { it[GOOGLE_DRIVE_ENABLED] = enabled }
-    }
-
-    suspend fun setGithubConnected(connected: Boolean) {
+    override suspend fun setGithubConnected(connected: Boolean) {
         appContext.cloudSyncDataStore.edit { it[GITHUB_CONNECTED] = connected }
     }
 
-    suspend fun setGoogleDriveConnected(connected: Boolean) {
-        appContext.cloudSyncDataStore.edit { it[GOOGLE_DRIVE_CONNECTED] = connected }
+    override suspend fun setGithubUsername(username: String?) {
+        appContext.cloudSyncDataStore.edit {
+            if (username.isNullOrBlank()) it.remove(GITHUB_USERNAME) else it[GITHUB_USERNAME] = username
+        }
+    }
+
+    override suspend fun setGithubRepository(repository: String) {
+        appContext.cloudSyncDataStore.edit {
+            it[GITHUB_REPOSITORY] = repository.trim().ifBlank { GitHubRepository.DEFAULT_NAME }
+        }
     }
 
     suspend fun setFrequency(frequency: SyncFrequency) {
@@ -66,9 +74,9 @@ class CloudSyncSettingsStore(context: Context) {
 
     private companion object {
         val GITHUB_ENABLED = booleanPreferencesKey("github_enabled")
-        val GOOGLE_DRIVE_ENABLED = booleanPreferencesKey("google_drive_enabled")
         val GITHUB_CONNECTED = booleanPreferencesKey("github_connected")
-        val GOOGLE_DRIVE_CONNECTED = booleanPreferencesKey("google_drive_connected")
+        val GITHUB_USERNAME = stringPreferencesKey("github_username")
+        val GITHUB_REPOSITORY = stringPreferencesKey("github_repository")
         val FREQUENCY = stringPreferencesKey("frequency")
     }
 }

@@ -1,9 +1,8 @@
 package io.github.tuzfucius.personalrecorder.sync
 
-/** 云端后端的稳定标识，可同时启用多个后端。 */
+/** 云端后端的稳定标识。Room 仍以字符串保存历史 backend 值。 */
 enum class CloudBackendType {
-    GITHUB,
-    GOOGLE_DRIVE
+    GITHUB
 }
 
 /** WorkManager 的周期为尽力而为，不表示固定时刻执行。 */
@@ -101,6 +100,7 @@ data class ArchiveSyncResult(
     val status: ArchiveSyncStatus,
     val attempts: Int,
     val remoteReference: String? = null,
+    val wasAlreadyPresent: Boolean = false,
     val error: SyncError? = null,
     val retryExhausted: Boolean = false,
 ) {
