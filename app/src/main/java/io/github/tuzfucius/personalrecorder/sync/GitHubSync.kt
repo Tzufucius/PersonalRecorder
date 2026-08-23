@@ -1,5 +1,7 @@
 package io.github.tuzfucius.personalrecorder.sync
 
+import kotlinx.coroutines.CancellationException
+
 data class GitHubRepository(val owner: String, val name: String) {
     init {
         require(owner.isNotBlank()) { "GitHub owner 不能为空" }
@@ -73,6 +75,7 @@ class GitHubPrivateRepositoryGuard(private val inspector: GitHubRepositoryInspec
             else -> null
         }
     }.getOrElse { error ->
+        if (error is CancellationException) throw error
         when (error) {
             is SyncHttpException -> when {
                 error.statusCode == 401 -> SyncError.Authentication("GitHub Token 已失效")
@@ -99,7 +102,7 @@ class GitHubConnectionCoordinator(
         if (candidateToken.isBlank()) return Result.failure(GitHubConnectionException("Personal Access Token 不能为空"))
         if (candidateRepository.isBlank()) return Result.failure(GitHubConnectionException("仓库名称不能为空"))
 
-        return runCatching {
+        return try {
             val client = clientFactory(candidateToken)
             val login = client.authenticatedLogin()
             val repository = GitHubRepository(login, candidateRepository)
@@ -117,16 +120,26 @@ class GitHubConnectionCoordinator(
                 settings.setGithubRepository(repository.name)
                 settings.setGithubConnected(true)
             } catch (persistError: Throwable) {
-                secrets.remove(CloudCredentialStore.GITHUB_ACCESS_TOKEN)
+                try {
+                    secrets.remove(CloudCredentialStore.GITHUB_ACCESS_TOKEN)
+                } catch (cleanupError: Throwable) {
+                    persistError.addSuppressed(cleanupError)
+                }
+                if (persistError is CancellationException) throw persistError
                 throw GitHubConnectionException("GitHub 连接状态保存失败", persistError)
             }
-            login
-        }.recoverCatching { error ->
+            Result.success(login)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
             if (error is SyncHttpException) {
-                throw GitHubConnectionException(error.userMessage(), error)
+                Result.failure(GitHubConnectionException(error.userMessage(), error))
+            } else {
+                Result.failure(
+                    if (error is GitHubConnectionException) error
+                    else GitHubConnectionException(error.message ?: "GitHub 连接失败", error)
+                )
             }
-            throw if (error is GitHubConnectionException) error
-            else GitHubConnectionException(error.message ?: "GitHub 连接失败", error)
         }
     }
 }
@@ -174,6 +187,8 @@ class GitHubCloudSyncBackend(
             }
         } catch (error: SyncHttpException) {
             BackendSyncResult.Failure(error.toSyncError())
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Throwable) {
             BackendSyncResult.Failure(SyncError.Network("GitHub 上传失败", error))
         }

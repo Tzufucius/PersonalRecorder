@@ -1,5 +1,6 @@
 package io.github.tuzfucius.personalrecorder.sync
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -110,6 +111,61 @@ class GitHubSyncTest {
         assertEquals("archive", api.createdName)
     }
 
+    @Test
+    fun cancellationDuringValidationIsPropagatedAndDoesNotPersist() = runBlocking {
+        val secrets = RecordingSecretStore()
+        val cancellation = CancellationException("cancelled")
+        var propagated: CancellationException? = null
+
+        try {
+            GitHubConnectionCoordinator(
+                clientFactory = { object : FakeConnectionApi(null) {
+                    override suspend fun authenticatedLogin(): String = throw cancellation
+                } },
+                secrets = secrets,
+                settings = RecordingConnectionSettings(),
+            ).connect("test-token", "archive")
+        } catch (error: CancellationException) {
+            propagated = error
+        }
+
+        assertTrue(propagated === cancellation)
+        assertEquals(null, secrets.value)
+    }
+
+    @Test
+    fun cancellationDuringPersistenceCleansUpTokenAndIsPropagated() = runBlocking {
+        val secrets = RecordingSecretStore()
+        val cancellation = CancellationException("cancelled")
+        var propagated: CancellationException? = null
+
+        try {
+            GitHubConnectionCoordinator(
+                clientFactory = { FakeConnectionApi(GitHubRepositoryDetails("alice", true, true)) },
+                secrets = secrets,
+                settings = ThrowingConnectionSettings(cancellation),
+            ).connect("test-token", "archive")
+        } catch (error: CancellationException) {
+            propagated = error
+        }
+
+        assertTrue(propagated === cancellation)
+        assertEquals(null, secrets.value)
+    }
+
+    @Test
+    fun persistenceFailureDoesNotLeaveTokenBehind() = runBlocking {
+        val secrets = RecordingSecretStore()
+        val result = GitHubConnectionCoordinator(
+            clientFactory = { FakeConnectionApi(GitHubRepositoryDetails("alice", true, true)) },
+            secrets = secrets,
+            settings = ThrowingConnectionSettings(IllegalStateException("store failed")),
+        ).connect("test-token", "archive")
+
+        assertTrue(result.isFailure)
+        assertEquals(null, secrets.value)
+    }
+
     private class FakeSecretStore : SecretStore {
         override fun put(name: String, value: String) = Unit
         override fun get(name: String): String? = null
@@ -138,7 +194,13 @@ class GitHubSyncTest {
         override suspend fun setGithubConnected(connected: Boolean) { this.connected = connected }
     }
 
-    private class FakeConnectionApi(
+    private class ThrowingConnectionSettings(private val failure: Throwable) : GitHubConnectionSettings {
+        override suspend fun setGithubUsername(username: String?) = throw failure
+        override suspend fun setGithubRepository(repository: String) = Unit
+        override suspend fun setGithubConnected(connected: Boolean) = Unit
+    }
+
+    private open class FakeConnectionApi(
         private val details: GitHubRepositoryDetails?,
         private val created: GitHubRepositoryDetails? = null,
     ) : GitHubArchiveApi {

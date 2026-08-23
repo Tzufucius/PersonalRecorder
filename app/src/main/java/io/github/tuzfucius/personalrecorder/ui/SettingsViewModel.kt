@@ -17,6 +17,7 @@ import io.github.tuzfucius.personalrecorder.sync.SecureSecretStore
 import io.github.tuzfucius.personalrecorder.sync.SyncFrequency
 import io.github.tuzfucius.personalrecorder.sync.SyncScheduler
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -52,23 +53,28 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         githubJob = viewModelScope.launch {
             _connecting.value = true
             _message.value = null
-            val secrets = SecureSecretStore(context)
-            val coordinator = GitHubConnectionCoordinator(
-                clientFactory = { candidate ->
-                    GitHubArchiveClient(GitHubAccessTokenProvider { candidate })
-                },
-                secrets = secrets,
-                settings = settingsStore,
-            )
-            coordinator.connect(token, repositoryName)
-                .onSuccess { login -> _message.value = "GitHub 已连接：$login" }
-                .onFailure { error ->
-                    _message.value = when (error) {
-                        is GitHubConnectionException -> error.message
-                        else -> "GitHub 连接失败"
+            try {
+                val secrets = SecureSecretStore(context)
+                val coordinator = GitHubConnectionCoordinator(
+                    clientFactory = { candidate ->
+                        GitHubArchiveClient(GitHubAccessTokenProvider { candidate })
+                    },
+                    secrets = secrets,
+                    settings = settingsStore,
+                )
+                coordinator.connect(token, repositoryName)
+                    .onSuccess { login -> _message.value = "GitHub 已连接：$login" }
+                    .onFailure { error ->
+                        _message.value = when (error) {
+                            is GitHubConnectionException -> error.message
+                            else -> "GitHub 连接失败"
+                        }
                     }
-                }
-            _connecting.value = false
+            } catch (error: CancellationException) {
+                throw error
+            } finally {
+                _connecting.value = false
+            }
         }
     }
 
