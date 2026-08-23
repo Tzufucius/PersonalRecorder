@@ -12,6 +12,7 @@ class RecentTaskControllerTest {
         assertFalse(controller.excluded)
         controller.setExcludeFromRecents(true)
         assertTrue(controller.excluded)
+        assertTrue(controller.updateCount == 1)
         controller.setExcludeFromRecents(false)
         assertFalse(controller.excluded)
     }

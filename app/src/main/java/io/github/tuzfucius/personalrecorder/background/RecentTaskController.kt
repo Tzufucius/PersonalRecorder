@@ -16,9 +16,12 @@ interface RecentTaskController {
     class Fake : RecentTaskController {
         var excluded: Boolean = false
             private set
+        var updateCount: Int = 0
+            private set
 
         override fun setExcludeFromRecents(exclude: Boolean) {
             excluded = exclude
+            updateCount++
         }
     }
 }
@@ -38,8 +41,11 @@ private class AndroidRecentTaskController(
 class FakeRecentTaskController : RecentTaskController {
     var excluded: Boolean = false
         private set
+    var updateCount: Int = 0
+        private set
 
     override fun setExcludeFromRecents(exclude: Boolean) {
         excluded = exclude
+        updateCount++
     }
 }
