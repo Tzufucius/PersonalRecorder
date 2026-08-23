@@ -6,6 +6,7 @@ import android.util.Log
 import android.content.ComponentName
 import io.github.tuzfucius.personalrecorder.background.BackgroundHealthWorker
 import io.github.tuzfucius.personalrecorder.background.BackgroundRuntimeStateStore
+import io.github.tuzfucius.personalrecorder.PersonalRecorderApplication
 import io.github.tuzfucius.personalrecorder.data.AppDatabase
 import io.github.tuzfucius.personalrecorder.data.EventEntity
 import io.github.tuzfucius.personalrecorder.settings.FilterSettingsStore
@@ -24,7 +25,8 @@ class NotificationCollectorService : NotificationListenerService() {
     override fun onListenerConnected() {
         Log.i(TAG, "Notification listener connected")
         serviceScope.launch {
-            runtimeStateStore.markListenerConnected()
+            val application = application as? PersonalRecorderApplication
+            runtimeStateStore.markListenerConnected(application?.processInstanceId)
             BackgroundHealthWorker.enqueueNow(applicationContext)
         }
     }

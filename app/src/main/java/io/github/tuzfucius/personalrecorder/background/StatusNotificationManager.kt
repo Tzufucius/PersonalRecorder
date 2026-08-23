@@ -38,7 +38,11 @@ class StatusNotificationManager(context: Context) {
     fun show(state: BackgroundRuntimeState, todayCount: Int) {
         if (!canPostNotifications()) return
         ensureChannel()
-        val listener = if (state.listenerConnected) "● 通知监听正常" else "⚠ 通知监听已断开"
+        val listener = when (state.listenerStatus) {
+            ListenerRuntimeStatus.CONNECTED -> "● 通知监听正常"
+            ListenerRuntimeStatus.DISCONNECTED -> "⚠ 通知监听已断开"
+            ListenerRuntimeStatus.UNKNOWN -> "? 通知监听状态未知"
+        }
         val sync = state.lastSyncSuccessAt?.let { formatTime(it) } ?: "暂无"
         val content = buildString {
             append(listener)
@@ -66,7 +70,7 @@ class StatusNotificationManager(context: Context) {
         val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("Personal Recorder")
-            .setContentText(if (state.listenerConnected) "后台运行正常" else "通知监听已断开")
+            .setContentText(listener)
             .setStyle(NotificationCompat.BigTextStyle().bigText(content))
             .setOngoing(true)
             .setOnlyAlertOnce(true)

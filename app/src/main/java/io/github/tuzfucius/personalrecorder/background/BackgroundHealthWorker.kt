@@ -24,6 +24,19 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 
+internal fun shouldRequestListenerRebind(
+    state: BackgroundRuntimeState,
+    listenerPermission: Boolean,
+    now: Long,
+    staleAfterMillis: Long = 2 * 60 * 1000L,
+    cooldownMillis: Long = 60 * 1000L,
+): Boolean {
+    if (!listenerPermission) return false
+    val stale = state.lastListenerCallbackAt == null || now - state.lastListenerCallbackAt >= staleAfterMillis
+    val cooldownElapsed = state.lastRebindRequestAt == null || now - state.lastRebindRequestAt >= cooldownMillis
+    return (state.listenerStatus != ListenerRuntimeStatus.CONNECTED || stale) && cooldownElapsed
+}
+
 class BackgroundHealthWorker(
     appContext: Context,
     workerParams: WorkerParameters,
@@ -36,7 +49,9 @@ class BackgroundHealthWorker(
         val listenerEnabled = NotificationManagerCompat.getEnabledListenerPackages(context)
             .contains(context.packageName)
         val current = runtime.state.first()
-        if (listenerEnabled && !current.listenerConnected) {
+        val now = System.currentTimeMillis()
+        if (shouldRequestListenerRebind(current, listenerEnabled, now, LISTENER_STALE_AFTER_MILLIS, REBIND_COOLDOWN_MILLIS)) {
+            runtime.markRebindRequested(now)
             runCatching {
                 NotificationListenerService.requestRebind(
                     ComponentName(context, NotificationCollectorService::class.java)
@@ -69,6 +84,8 @@ class BackgroundHealthWorker(
     }
 
     companion object {
+        private const val LISTENER_STALE_AFTER_MILLIS = 2 * 60 * 1000L
+        private const val REBIND_COOLDOWN_MILLIS = 60 * 1000L
         private const val PERIODIC_NAME = "background_health_check"
         private const val NOW_NAME = "background_health_check_now"
 

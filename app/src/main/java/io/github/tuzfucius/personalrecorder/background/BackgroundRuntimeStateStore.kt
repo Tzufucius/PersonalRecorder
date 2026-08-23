@@ -11,12 +11,18 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 
+enum class ListenerRuntimeStatus { UNKNOWN, CONNECTED, DISCONNECTED }
+
 private val Context.backgroundRuntimeDataStore by preferencesDataStore(name = "background_runtime")
 
 data class BackgroundRuntimeState(
-    val listenerConnected: Boolean = false,
+    val listenerStatus: ListenerRuntimeStatus = ListenerRuntimeStatus.UNKNOWN,
+    val processInstanceId: String? = null,
+    val processStartedAt: Long? = null,
     val lastListenerConnectedAt: Long? = null,
     val lastListenerDisconnectedAt: Long? = null,
+    val lastListenerCallbackAt: Long? = null,
+    val lastRebindRequestAt: Long? = null,
     val lastEventAt: Long? = null,
     val lastArchiveAt: Long? = null,
     val lastSyncAttemptAt: Long? = null,
@@ -32,7 +38,9 @@ data class BackgroundRuntimeState(
     val batteryOptimizationIgnored: Boolean? = null,
     val oemManufacturer: String? = null,
     val oemVendorManagedBackground: Boolean? = null,
-)
+) {
+    val listenerConnected: Boolean get() = listenerStatus == ListenerRuntimeStatus.CONNECTED
+}
 
 class BackgroundRuntimeStateStore(context: Context) {
     private val appContext = context.applicationContext
@@ -40,9 +48,18 @@ class BackgroundRuntimeStateStore(context: Context) {
     val state: Flow<BackgroundRuntimeState> = appContext.backgroundRuntimeDataStore.data
         .map { preferences ->
             BackgroundRuntimeState(
-                listenerConnected = preferences[LISTENER_CONNECTED] ?: false,
+                listenerStatus = preferences[LISTENER_STATUS]?.let {
+                    runCatching { ListenerRuntimeStatus.valueOf(it) }.getOrNull()
+                } ?: when (preferences[LEGACY_LISTENER_CONNECTED]) {
+                    true -> ListenerRuntimeStatus.CONNECTED
+                    else -> ListenerRuntimeStatus.UNKNOWN
+                },
+                processInstanceId = preferences[PROCESS_INSTANCE_ID],
+                processStartedAt = preferences[PROCESS_STARTED_AT],
                 lastListenerConnectedAt = preferences[LISTENER_CONNECTED_AT],
                 lastListenerDisconnectedAt = preferences[LISTENER_DISCONNECTED_AT],
+                lastListenerCallbackAt = preferences[LAST_LISTENER_CALLBACK_AT],
+                lastRebindRequestAt = preferences[LAST_REBIND_REQUEST_AT],
                 lastEventAt = preferences[LAST_EVENT_AT],
                 lastArchiveAt = preferences[LAST_ARCHIVE_AT],
                 lastSyncAttemptAt = preferences[LAST_SYNC_ATTEMPT_AT],
@@ -62,19 +79,38 @@ class BackgroundRuntimeStateStore(context: Context) {
         }
         .catch { emit(BackgroundRuntimeState()) }
 
-    suspend fun markListenerConnected(now: Long = System.currentTimeMillis()) {
+    suspend fun markProcessStarted(processInstanceId: String, startedAt: Long = System.currentTimeMillis()) {
         appContext.backgroundRuntimeDataStore.edit { preferences ->
-            preferences[LISTENER_CONNECTED] = true
+            if (preferences[PROCESS_INSTANCE_ID] != processInstanceId) {
+                preferences[PROCESS_INSTANCE_ID] = processInstanceId
+                preferences[PROCESS_STARTED_AT] = startedAt
+                preferences[LISTENER_STATUS] = ListenerRuntimeStatus.UNKNOWN.name
+            }
+        }
+    }
+
+    suspend fun markListenerConnected(
+        processInstanceId: String? = null,
+        now: Long = System.currentTimeMillis(),
+    ) {
+        appContext.backgroundRuntimeDataStore.edit { preferences ->
+            preferences[LISTENER_STATUS] = ListenerRuntimeStatus.CONNECTED.name
+            processInstanceId?.let { preferences[PROCESS_INSTANCE_ID] = it }
             preferences[LISTENER_CONNECTED_AT] = now
+            preferences[LAST_LISTENER_CALLBACK_AT] = now
         }
     }
 
     suspend fun markListenerDisconnected(now: Long = System.currentTimeMillis()) {
         appContext.backgroundRuntimeDataStore.edit { preferences ->
-            preferences[LISTENER_CONNECTED] = false
+            preferences[LISTENER_STATUS] = ListenerRuntimeStatus.DISCONNECTED.name
             preferences[LISTENER_DISCONNECTED_AT] = now
+            preferences[LAST_LISTENER_CALLBACK_AT] = now
         }
     }
+
+    suspend fun markRebindRequested(now: Long = System.currentTimeMillis()) =
+        setLong(LAST_REBIND_REQUEST_AT, now)
 
     suspend fun markEvent(now: Long = System.currentTimeMillis()) = setLong(LAST_EVENT_AT, now)
     suspend fun markArchive(now: Long = System.currentTimeMillis()) = setLong(LAST_ARCHIVE_AT, now)
@@ -122,9 +158,14 @@ class BackgroundRuntimeStateStore(context: Context) {
     }
 
     private companion object {
-        val LISTENER_CONNECTED = booleanPreferencesKey("listener_connected")
+        val LISTENER_STATUS = stringPreferencesKey("listener_status")
+        val LEGACY_LISTENER_CONNECTED = booleanPreferencesKey("listener_connected")
+        val PROCESS_INSTANCE_ID = stringPreferencesKey("process_instance_id")
+        val PROCESS_STARTED_AT = longPreferencesKey("process_started_at")
         val LISTENER_CONNECTED_AT = longPreferencesKey("listener_connected_at")
         val LISTENER_DISCONNECTED_AT = longPreferencesKey("listener_disconnected_at")
+        val LAST_LISTENER_CALLBACK_AT = longPreferencesKey("last_listener_callback_at")
+        val LAST_REBIND_REQUEST_AT = longPreferencesKey("last_rebind_request_at")
         val LAST_EVENT_AT = longPreferencesKey("last_event_at")
         val LAST_ARCHIVE_AT = longPreferencesKey("last_archive_at")
         val LAST_SYNC_ATTEMPT_AT = longPreferencesKey("last_sync_attempt_at")

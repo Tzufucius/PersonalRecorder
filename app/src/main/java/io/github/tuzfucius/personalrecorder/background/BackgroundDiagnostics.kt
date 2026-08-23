@@ -13,7 +13,7 @@ data class BatteryOemDiagnostics(
 )
 
 object BackgroundDiagnostics {
-    private val vendorNames = setOf("huawei", "honor", "xiaomi", "redmi", "oppo", "oneplus", "vivo", "meizu")
+    private val vendorNames = setOf("huawei", "honor", "xiaomi", "redmi", "oppo", "realme", "oneplus", "vivo", "meizu")
 
     fun read(context: Context): BatteryOemDiagnostics {
         val appContext = context.applicationContext
@@ -21,13 +21,28 @@ object BackgroundDiagnostics {
         val manufacturer = Build.MANUFACTURER.trim().ifBlank { "未知" }
         val normalized = manufacturer.lowercase()
         val vendorManaged = vendorNames.any { normalized.contains(it) }
+        val batteryOptimizationIgnored = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            true
+        } else {
+            runCatching { power?.isIgnoringBatteryOptimizations(appContext.packageName) == true }
+                .getOrDefault(false)
+        }
         return BatteryOemDiagnostics(
-            batteryOptimizationIgnored = Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
-                power?.isIgnoringBatteryOptimizations(appContext.packageName) == true,
+            batteryOptimizationIgnored = batteryOptimizationIgnored,
             manufacturer = manufacturer,
             model = Build.MODEL.trim().ifBlank { "未知设备" },
             vendorManagedBackground = vendorManaged,
-            vendorGuidance = if (vendorManaged) "该厂商可能额外限制自启动或后台活动，请在应用信息中允许后台活动。" else null,
+            vendorGuidance = vendorGuidance(normalized),
         )
+    }
+
+    private fun vendorGuidance(manufacturer: String): String = when {
+        manufacturer.contains("huawei") || manufacturer.contains("honor") ->
+            "请在电池设置中关闭本应用的省电优化，并在启动管理中允许自动管理或后台运行。"
+        manufacturer.contains("xiaomi") || manufacturer.contains("redmi") ->
+            "请在应用信息中允许自启动，并将电池策略设为无限制；必要时锁定最近任务。"
+        manufacturer.contains("oppo") || manufacturer.contains("realme") || manufacturer.contains("vivo") ->
+            "请在电池与后台活动设置中允许自启动、后台运行和无限制耗电。"
+        else -> "请在系统电池设置中允许本应用后台活动，并确认通知访问权限仍然开启。"
     }
 }

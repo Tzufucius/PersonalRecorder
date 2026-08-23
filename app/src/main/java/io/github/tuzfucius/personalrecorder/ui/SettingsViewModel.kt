@@ -161,6 +161,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun resolveConflict(conflictId: String) {
+        viewModelScope.launch { database.eventDao().markConflictResolved(conflictId) }
+    }
+
     private fun discoverAfterConnect() {
         viewModelScope.launch {
             val inventory = CloudSyncRuntime.discoverRemote(context, ReconcileMode.FULL_RESTORE) ?: return@launch

@@ -7,7 +7,6 @@ import androidx.activity.enableEdgeToEdge
 import io.github.tuzfucius.personalrecorder.sync.CloudSyncRuntime
 import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsState
 import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsStore
-import io.github.tuzfucius.personalrecorder.background.BackgroundHealthWorker
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,11 +22,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        (application as? PersonalRecorderApplication)?.refreshRecentTaskPolicy()
+        (application as? PersonalRecorderApplication)?.refreshRecentTaskPolicy(taskId)
         openSettings.value = intent.getBooleanExtra(EXTRA_OPEN_DIAGNOSTICS, false)
-        CloudSyncRuntime.configure(this)
-        BackgroundHealthWorker.schedule(this)
-        BackgroundHealthWorker.enqueueNow(this)
+        io.github.tuzfucius.personalrecorder.background.BackgroundHealthWorker.enqueueNow(this)
         lifecycleScope.launch {
             val state = CloudSyncSettingsStore(this@MainActivity).state.first()
             (state as? CloudSyncSettingsState.Ready)?.settings?.let { settings ->

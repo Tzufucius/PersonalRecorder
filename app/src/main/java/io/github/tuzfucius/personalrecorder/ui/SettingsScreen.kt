@@ -57,7 +57,9 @@ import io.github.tuzfucius.personalrecorder.sync.GitHubRepository
 import io.github.tuzfucius.personalrecorder.sync.SyncFrequency
 import io.github.tuzfucius.personalrecorder.background.BackgroundRuntimeState
 import io.github.tuzfucius.personalrecorder.background.BackgroundDiagnostics
+import io.github.tuzfucius.personalrecorder.background.ListenerRuntimeStatus
 import io.github.tuzfucius.personalrecorder.data.ArchiveConflictEntity
+import androidx.core.app.NotificationManagerCompat
 import java.text.DateFormat
 import java.util.Date
 
@@ -169,6 +171,7 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel? = null) {
                     ConflictDetailsCard(
                         conflicts = conflicts,
                         onClose = { showConflictDetails = false },
+                        onResolve = viewModel::resolveConflict,
                     )
                 }
             }
@@ -392,7 +395,15 @@ private fun BackgroundDiagnosticsCard(
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("后台运行", style = MaterialTheme.typography.titleMedium)
-            StatusLine("通知访问", runtimeState.listenerConnected, if (runtimeState.listenerConnected) "正常" else "未连接")
+            val listenerPermission = NotificationManagerCompat.getEnabledListenerPackages(context)
+                .contains(context.packageName)
+            StatusLine("通知访问权限", listenerPermission, if (listenerPermission) "已授权" else "未授权")
+            val listenerStatus = when (runtimeState.listenerStatus) {
+                ListenerRuntimeStatus.CONNECTED -> "实时已连接"
+                ListenerRuntimeStatus.DISCONNECTED -> "实时已断开"
+                ListenerRuntimeStatus.UNKNOWN -> "实时状态未知"
+            }
+            StatusLine("监听实时状态", runtimeState.listenerStatus == ListenerRuntimeStatus.CONNECTED, listenerStatus)
             StatusLine("GitHub", githubConnected, if (githubConnected) "已连接" else "未连接")
             Text("待上传：${runtimeState.pendingUploads}    待下载：${runtimeState.pendingDownloads}")
             Text("冲突：${runtimeState.conflicts}")
@@ -406,6 +417,9 @@ private fun BackgroundDiagnosticsCard(
                 color = if (diagnostics.batteryOptimizationIgnored) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
             )
             Text("设备：${diagnostics.manufacturer} ${diagnostics.model}")
+            Text("状态通知：${if (statusNotificationEnabled) "已开启" else "已关闭"}")
+            Text("最近任务：${if (hideFromRecents) "已隐藏" else "可见"}")
+            Text("最近同步：${formatSyncTime(runtimeState.lastSyncSuccessAt)}")
             diagnostics.vendorGuidance?.let {
                 Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             }
@@ -447,6 +461,7 @@ private fun BackgroundDiagnosticsCard(
 private fun ConflictDetailsCard(
     conflicts: List<ArchiveConflictEntity>,
     onClose: () -> Unit,
+    onResolve: (String) -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -461,6 +476,11 @@ private fun ConflictDetailsCard(
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(conflict.relativePath, style = MaterialTheme.typography.bodyMedium)
                         Text(
+                            "segment：${conflict.segmentId}  创建：${formatSyncTime(conflict.createdAt)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
                             conflict.summary,
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall,
@@ -470,6 +490,7 @@ private fun ConflictDetailsCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall,
                         )
+                        TextButton(onClick = { onResolve(conflict.conflictId) }) { Text("标记已处理") }
                     }
                     if (conflict != conflicts.last()) HorizontalDivider()
                 }

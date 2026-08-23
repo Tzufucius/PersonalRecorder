@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.tuzfucius.personalrecorder.background.BackgroundRuntimeState
+import io.github.tuzfucius.personalrecorder.background.ListenerRuntimeStatus
 
 @Composable
 fun RuntimeStatusCard(
@@ -26,7 +27,12 @@ fun RuntimeStatusCard(
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("运行状态", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(2.dp))
-            StatusRow("通知采集", if (state.listenerConnected) "● 正常" else "△ 未连接", state.listenerConnected)
+            val listenerLabel = when (state.listenerStatus) {
+                ListenerRuntimeStatus.CONNECTED -> "● 正常"
+                ListenerRuntimeStatus.DISCONNECTED -> "△ 已断开"
+                ListenerRuntimeStatus.UNKNOWN -> "? 状态未知"
+            }
+            StatusRow("通知采集", listenerLabel, state.listenerStatus == ListenerRuntimeStatus.CONNECTED)
             Text("最近采集：${formatRuntimeTime(state.lastEventAt)}", style = MaterialTheme.typography.bodySmall)
             StatusRow("GitHub", if (githubConnected) "● 已连接" else "△ 未连接", githubConnected)
             Text("待上传：${state.pendingUploads}    待下载：${state.pendingDownloads}    冲突：${state.conflicts}")
