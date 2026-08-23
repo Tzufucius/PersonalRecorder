@@ -10,6 +10,7 @@ import io.github.tuzfucius.personalrecorder.data.ArchiveSyncStateEntity
 import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettings
 import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsState
 import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsStore
+import io.github.tuzfucius.personalrecorder.settings.DeviceIdentityStore
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -48,6 +49,12 @@ class ArchiveSyncRunner(
         }
         if (enabled.isEmpty()) return@withLock SyncBatchResult(emptyList())
 
+        val githubBackend = backends.filterIsInstance<GitHubCloudSyncBackend>().firstOrNull()
+        if (githubBackend != null && CloudBackendType.GITHUB in enabled && settings.githubConnected) {
+            val report = reconcileGithub(githubBackend, ReconcileMode.INCREMENTAL)
+            return@withLock SyncBatchResult(report.results)
+        }
+
         val coordinator = SyncCoordinator(backends)
         val results = mutableListOf<ArchiveSyncResult>()
         enabled.sortedBy { it.name }.forEach { backendType ->
@@ -76,6 +83,54 @@ class ArchiveSyncRunner(
             results += batchResult.results
         }
         SyncBatchResult(results)
+    }
+
+    suspend fun runReconcile(mode: ReconcileMode): ReconcileReport = syncMutex.withLock {
+        finalizeClosedArchives()
+        val current = (settings.state.first() as? CloudSyncSettingsState.Ready)?.settings
+        if (current?.githubConnected != true || !current.githubEnabled) {
+            return@withLock ReconcileReport(
+                mode = mode,
+                discoveredRemote = 0,
+                downloaded = 0,
+                uploaded = 0,
+                skipped = 0,
+                conflicts = 0,
+                results = emptyList(),
+                restoreState = RestoreState.FAILED,
+            )
+        }
+        val backend = backends.filterIsInstance<GitHubCloudSyncBackend>().firstOrNull()
+            ?: return@withLock ReconcileReport(
+                mode = mode,
+                discoveredRemote = 0,
+                downloaded = 0,
+                uploaded = 0,
+                skipped = 0,
+                conflicts = 0,
+                results = emptyList(),
+                restoreState = RestoreState.FAILED,
+            )
+        reconcileGithub(backend, mode)
+    }
+
+    private suspend fun reconcileGithub(
+        backend: GitHubCloudSyncBackend,
+        mode: ReconcileMode,
+    ): ReconcileReport {
+        val report = ArchiveReconcileService(
+            filesDir = appContext.filesDir,
+            database = database,
+            api = backend.api,
+            repositoryProvider = backend.repositoryProvider,
+            zoneId = writer.zoneId,
+            deviceInstanceIdProvider = { DeviceIdentityStore(appContext).getOrCreateId() },
+            nowMillis = nowMillis,
+        ).reconcile(mode)
+        if (report.results.any { it.error is SyncError.Authentication }) {
+            settings.setGithubConnected(false)
+        }
+        return report
     }
 
     private suspend fun collectPendingUploads(
@@ -176,6 +231,7 @@ class ArchiveSyncRunner(
     }
 
     private suspend fun finalizeClosedArchives() {
+        writer.deviceInstanceId = DeviceIdentityStore(appContext).getOrCreateId()
         val dao = database.eventDao()
         val bounds = dao.getEventTimestampBounds()
         val planner = ArchivePlanner(writer.zoneId)
@@ -249,6 +305,11 @@ object CloudSyncRuntime {
     }
 
     suspend fun syncNow(context: Context): SyncBatchResult = ensureConfigured(context).runSync(force = true)
+
+    suspend fun reconcileNow(
+        context: Context,
+        mode: ReconcileMode = ReconcileMode.INCREMENTAL,
+    ): ReconcileReport = ensureConfigured(context).runReconcile(mode)
 
     fun scheduler(context: Context): SyncScheduler = WorkManagerSyncScheduler(context)
 

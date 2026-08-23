@@ -41,7 +41,7 @@ class ArchiveWriter(
     filesDir: File,
     val zoneId: ZoneId = ZoneId.systemDefault(),
     private val json: Json = archiveJson,
-    private val deviceInstanceId: String? = null,
+    var deviceInstanceId: String? = null,
 ) {
     private val archiveRoot = File(filesDir, "archive")
 

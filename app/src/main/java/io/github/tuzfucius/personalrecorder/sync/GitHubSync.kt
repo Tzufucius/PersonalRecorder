@@ -165,8 +165,8 @@ class GitHubConnectionException(message: String, cause: Throwable? = null) : Exc
 
 /** Contents API 上传后端；每个文件独立幂等，成功后由 ArchiveSyncRunner 写入 Room 状态。 */
 class GitHubCloudSyncBackend(
-    private val repositoryProvider: suspend () -> GitHubRepository?,
-    private val api: GitHubArchiveApi,
+    internal val repositoryProvider: suspend () -> GitHubRepository?,
+    internal val api: GitHubArchiveApi,
 ) : CloudSyncBackend {
     constructor(repository: GitHubRepository, api: GitHubArchiveApi) : this({ repository }, api)
 
