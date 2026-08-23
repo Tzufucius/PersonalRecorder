@@ -112,16 +112,22 @@ fun StatisticsScreen(
                 DailyTrendChart(state.dailyCounts, state.selection.date, viewModel::selectDate)
             }
         }
-        item {
-            DetailsHeader(expanded = state.isDetailsExpanded, count = state.details.size, onClick = viewModel::toggleDetails)
-        }
-        if (state.isDetailsExpanded) {
-            if (state.details.isEmpty()) {
-                item { Text("暂无明细记录", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            } else {
-                items(state.details, key = { it.id }) { detail ->
-                    StatisticsDetailRow(detail)
-                    HorizontalDivider()
+        if (state.selection.app != null || state.selection.hour != null || state.selection.date != null) {
+            item {
+                DetailsHeader(expanded = state.isDetailsExpanded, count = state.details.size, onClick = viewModel::toggleDetails)
+            }
+            if (state.isDetailsExpanded) {
+                if (state.details.isEmpty()) {
+                    item { Text("暂无明细记录", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                } else {
+                    items(state.details, key = { it.id }) { detail ->
+                        StatisticsDetailRow(
+                            item = detail,
+                            expanded = state.expandedEventId == detail.id,
+                            onClick = { viewModel.toggleEventDetails(detail.id) },
+                        )
+                        HorizontalDivider()
+                    }
                 }
             }
         }
@@ -226,9 +232,22 @@ private fun DetailsHeader(expanded: Boolean, count: Int, onClick: () -> Unit) {
 }
 
 @Composable
-private fun StatisticsDetailRow(item: StatisticsEventItem) {
+private fun StatisticsDetailRow(
+    item: StatisticsEventItem,
+    expanded: Boolean,
+    onClick: () -> Unit,
+) {
     val context = LocalContext.current
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .semantics {
+                contentDescription = "通知明细 ${appLabel(context, item.packageName)} ${item.title.orEmpty()}"
+                role = Role.Button
+            }
+            .padding(vertical = 6.dp),
+    ) {
         Text(
             "${DateUtils.formatDateTime(context, item.timestamp, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME)}  ${appLabel(context, item.packageName)}",
             style = MaterialTheme.typography.labelLarge,
@@ -236,6 +255,20 @@ private fun StatisticsDetailRow(item: StatisticsEventItem) {
         )
         item.title?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
         Text(item.content?.takeIf { it.isNotBlank() } ?: item.bigText?.takeIf { it.isNotBlank() } ?: "（无正文）")
+        if (expanded) {
+            item.bigText?.takeIf { it.isNotBlank() && it != item.content }?.let {
+                Text("bigText：$it", style = MaterialTheme.typography.bodySmall)
+            }
+            if (item.textLines.isNotEmpty()) {
+                Text("textLines：${item.textLines.joinToString("、")}", style = MaterialTheme.typography.bodySmall)
+            }
+            item.channelId?.takeIf { it.isNotBlank() }?.let {
+                Text("channel：$it", style = MaterialTheme.typography.bodySmall)
+            }
+            item.category?.takeIf { it.isNotBlank() }?.let {
+                Text("category：$it", style = MaterialTheme.typography.bodySmall)
+            }
+        }
     }
 }
 

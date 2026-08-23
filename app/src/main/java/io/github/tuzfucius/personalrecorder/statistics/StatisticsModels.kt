@@ -48,6 +48,9 @@ data class StatisticsEventItem(
     val title: String? = null,
     val content: String? = null,
     val bigText: String? = null,
+    val textLines: List<String> = emptyList(),
+    val channelId: String? = null,
+    val category: String? = null,
     val isOngoing: Boolean = false,
     val isGroupSummary: Boolean = false,
 ) {
@@ -59,6 +62,9 @@ data class StatisticsEventItem(
             title = event.title,
             content = event.content,
             bigText = event.bigText,
+            textLines = event.textLines,
+            channelId = event.channelId,
+            category = event.category,
             isOngoing = event.isOngoing,
             isGroupSummary = event.isGroupSummary,
         )
@@ -89,6 +95,7 @@ data class StatisticsUiState(
     val selection: StatisticsSelection = StatisticsSelection(),
     val details: List<StatisticsEventItem> = emptyList(),
     val isDetailsExpanded: Boolean = false,
+    val expandedEventId: String? = null,
     val isOtherAppsExpanded: Boolean = false,
     val isLoading: Boolean = false,
     val errorMessage: String? = null

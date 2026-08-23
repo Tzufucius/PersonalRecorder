@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 class StatisticsViewModel(application: Application) : AndroidViewModel(application) {
@@ -22,10 +21,23 @@ class StatisticsViewModel(application: Application) : AndroidViewModel(applicati
     private val selection = MutableStateFlow(StatisticsSelection())
     private val detailsExpanded = MutableStateFlow(false)
     private val otherAppsExpanded = MutableStateFlow(false)
+    private val expandedEventId = MutableStateFlow<String?>(null)
 
     private val rows = selectedRange.flatMapLatest { range ->
         val bounds = calculator.bounds(range)
         dao.getStatisticsEvents(bounds.startMillis, bounds.endMillis, application.packageName)
+    }
+
+    private val detailCandidates = combine(selectedRange, selection) { range, currentSelection ->
+        calculator.bounds(range) to currentSelection
+    }.flatMapLatest { (bounds, currentSelection) ->
+        dao.getStatisticsEventDetails(
+            startMillis = bounds.startMillis,
+            endMillis = bounds.endMillis,
+            excludedPackageName = application.packageName,
+            packageName = currentSelection.app,
+            limit = 201,
+        )
     }
 
     private val calculatedState = combine(
@@ -33,7 +45,8 @@ class StatisticsViewModel(application: Application) : AndroidViewModel(applicati
         selection,
         filterStore.state,
         rows,
-    ) { range, currentSelection, settingsState, eventRows ->
+        detailCandidates,
+    ) { range, currentSelection, settingsState, eventRows, detailEvents ->
         if (settingsState is FilterSettingsState.Error) {
             return@combine StatisticsUiState(
                 range = range,
@@ -43,15 +56,27 @@ class StatisticsViewModel(application: Application) : AndroidViewModel(applicati
             )
         }
         val settings = (settingsState as FilterSettingsState.Ready).settings
-        calculator.calculate(eventRows, range, application.packageName, settings, currentSelection)
+        calculator.calculate(
+            eventRows,
+            range,
+            application.packageName,
+            settings,
+            currentSelection,
+            details = detailEvents.map(StatisticsEventItem::fromEvent),
+        )
     }
 
     val uiState: StateFlow<StatisticsUiState> = combine(
         calculatedState,
         detailsExpanded,
         otherAppsExpanded,
-    ) { state, detailsOpen, otherOpen ->
-        state.copy(isDetailsExpanded = detailsOpen, isOtherAppsExpanded = otherOpen)
+        expandedEventId,
+    ) { state, detailsOpen, otherOpen, expandedId ->
+        state.copy(
+            isDetailsExpanded = detailsOpen,
+            isOtherAppsExpanded = otherOpen,
+            expandedEventId = expandedId,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StatisticsUiState(isLoading = true))
 
     fun selectRange(range: StatisticsRange) {
@@ -79,6 +104,10 @@ class StatisticsViewModel(application: Application) : AndroidViewModel(applicati
 
     fun toggleOtherApps() {
         otherAppsExpanded.value = !otherAppsExpanded.value
+    }
+
+    fun toggleEventDetails(id: String) {
+        expandedEventId.value = if (expandedEventId.value == id) null else id
     }
 
     fun clearSelection() {

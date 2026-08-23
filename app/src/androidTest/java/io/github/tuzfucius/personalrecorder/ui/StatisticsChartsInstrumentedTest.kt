@@ -5,7 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -35,7 +35,7 @@ class StatisticsChartsInstrumentedTest {
             }
         }
 
-        composeRule.onNodeWithContentDescription("应用来源环图").assertCountEquals(1)
+        composeRule.onNodeWithContentDescription("应用来源环图，共 6 条").assertIsDisplayed()
         composeRule.onNodeWithText("app.one 4").performClick()
         assertEquals("app.one", selected)
     }
@@ -54,7 +54,7 @@ class StatisticsChartsInstrumentedTest {
             }
         }
 
-        composeRule.onNodeWithText("其他 1").assertCountEquals(1).performClick()
-        composeRule.onNodeWithText("app.7 1").assertCountEquals(1)
+        composeRule.onNodeWithText("其他 1").assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("app.7 1").assertIsDisplayed()
     }
 }
