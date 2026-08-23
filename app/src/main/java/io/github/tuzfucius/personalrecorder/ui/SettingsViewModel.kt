@@ -23,6 +23,7 @@ import io.github.tuzfucius.personalrecorder.sync.SyncFrequency
 import io.github.tuzfucius.personalrecorder.sync.SyncScheduler
 import io.github.tuzfucius.personalrecorder.sync.ReconcileMode
 import io.github.tuzfucius.personalrecorder.sync.RestoreState
+import io.github.tuzfucius.personalrecorder.PersonalRecorderApplication
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -158,6 +159,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setHideFromRecents(enabled: Boolean) {
         viewModelScope.launch {
             backgroundSettingsStore.setHideFromRecents(enabled)
+            (context as? PersonalRecorderApplication)?.applyRecentTaskPolicy(enabled)
         }
     }
 

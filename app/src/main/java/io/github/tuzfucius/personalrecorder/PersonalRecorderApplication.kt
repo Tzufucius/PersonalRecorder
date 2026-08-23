@@ -10,7 +10,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -33,10 +32,6 @@ class PersonalRecorderApplication : Application() {
                 .markProcessStarted(processInstanceId, processStartedAt)
         }
         BackgroundHealthWorker.schedule(this)
-        applicationScope.launch {
-            BackgroundSettingsStore(this@PersonalRecorderApplication).hideFromRecents
-                .collectLatest { recentTaskController.setExcludeFromRecents(it) }
-        }
     }
 
     /** Re-applies the policy after an Activity creates the app task. */
@@ -45,6 +40,11 @@ class PersonalRecorderApplication : Application() {
             val hidden = BackgroundSettingsStore(this@PersonalRecorderApplication).hideFromRecents.first()
             recentTaskController.setExcludeFromRecents(hidden, taskId)
         }
+    }
+
+    /** Applies a user toggle while an Activity task is already available. */
+    fun applyRecentTaskPolicy(exclude: Boolean, taskId: Int? = null) {
+        recentTaskController.setExcludeFromRecents(exclude, taskId)
     }
 
     override fun onTerminate() {

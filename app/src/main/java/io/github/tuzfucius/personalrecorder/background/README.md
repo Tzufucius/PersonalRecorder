@@ -9,6 +9,6 @@
 - `BackgroundDiagnostics.kt`：读取电池优化豁免和厂商后台限制提示，仅使用公开系统 API。
 - `RecentTaskController.kt`：通过当前 `AppTask.setExcludeFromRecents` 应用用户选择，提供 `Result` 失败边界和 Fake 实现用于测试。
 
-`PersonalRecorderApplication` 负责进程级健康检查调度和最近任务策略同步；Activity 创建后会再次应用策略，避免应用首次启动时尚未存在 `AppTask`。
+`PersonalRecorderApplication` 负责进程级健康检查调度和最近任务控制器初始化；设置切换立即应用策略，Activity 创建后会再次应用策略，避免应用首次启动时尚未存在 `AppTask`。
 
 Android/OEM 不保证普通应用永久存活；诊断页只使用标准系统设置入口，不自动修改自启动或最近任务锁定策略。
