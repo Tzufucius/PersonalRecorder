@@ -17,6 +17,7 @@ import io.github.tuzfucius.personalrecorder.sync.GitHubAccessTokenProvider
 import io.github.tuzfucius.personalrecorder.sync.GitHubArchiveClient
 import io.github.tuzfucius.personalrecorder.sync.GitHubConnectionCoordinator
 import io.github.tuzfucius.personalrecorder.sync.GitHubConnectionException
+import io.github.tuzfucius.personalrecorder.sync.GitHubRestoreWorker
 import io.github.tuzfucius.personalrecorder.sync.SecureSecretStore
 import io.github.tuzfucius.personalrecorder.sync.SyncFrequency
 import io.github.tuzfucius.personalrecorder.sync.SyncScheduler
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -50,6 +52,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val restoreState: StateFlow<RestoreUiState> = _restoreState.asStateFlow()
     private val _restorePrompt = MutableStateFlow<RestorePrompt?>(null)
     val restorePrompt: StateFlow<RestorePrompt?> = _restorePrompt.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            GitHubRestoreWorker.observe(context).collectLatest { workInfos ->
+                workInfos.firstOrNull()?.let { workInfo ->
+                    _restoreState.value = workInfo.toRestoreUiState()
+                }
+            }
+        }
+    }
 
     fun setGithubEnabled(enabled: Boolean) = viewModelScope.launch {
         settingsStore.setGithubEnabled(enabled)
@@ -120,7 +132,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun restoreFromGithub() {
         _restorePrompt.value = null
-        runReconcile(ReconcileMode.FULL_RESTORE, discoverOnly = false)
+        _restoreState.value = RestoreUiState(
+            running = true,
+            state = RestoreState.DISCOVERING,
+            mode = ReconcileMode.FULL_RESTORE,
+        )
+        GitHubRestoreWorker.enqueue(context)
     }
 
     fun dismissRestorePrompt() {
@@ -224,4 +241,27 @@ private object NoOpSyncScheduler : SyncScheduler {
     override fun enqueueNow() = Unit
     override fun observeNowWork(): Flow<List<WorkInfo>> = emptyFlow()
     override fun cancel() = Unit
+}
+
+private fun WorkInfo.toRestoreUiState(): RestoreUiState {
+    val data = if (state.isFinished) outputData else progress
+    val phase = data.getString(GitHubRestoreWorker.KEY_PHASE).orEmpty()
+    val restoreState = when {
+        state == WorkInfo.State.SUCCEEDED || phase == RestoreState.COMPLETED.name -> RestoreState.COMPLETED
+        state == WorkInfo.State.FAILED || phase == RestoreState.FAILED.name -> RestoreState.FAILED
+        phase == "PROCESSING" -> RestoreState.DOWNLOADING
+        phase == "DISCOVERING" -> RestoreState.DISCOVERING
+        else -> RestoreState.DOWNLOADING
+    }
+    return RestoreUiState(
+        running = state == WorkInfo.State.ENQUEUED || state == WorkInfo.State.RUNNING || state == WorkInfo.State.BLOCKED,
+        state = restoreState,
+        mode = ReconcileMode.FULL_RESTORE,
+        discovered = data.getInt(GitHubRestoreWorker.KEY_DISCOVERED, 0),
+        downloaded = data.getInt(GitHubRestoreWorker.KEY_DOWNLOADED, 0),
+        uploaded = data.getInt(GitHubRestoreWorker.KEY_UPLOADED, 0),
+        skipped = data.getInt(GitHubRestoreWorker.KEY_SKIPPED, 0),
+        conflicts = data.getInt(GitHubRestoreWorker.KEY_CONFLICTS, 0),
+        error = data.getString(GitHubRestoreWorker.KEY_ERROR),
+    )
 }
