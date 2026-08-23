@@ -23,6 +23,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        (application as? PersonalRecorderApplication)?.refreshRecentTaskPolicy()
         openSettings.value = intent.getBooleanExtra(EXTRA_OPEN_DIAGNOSTICS, false)
         CloudSyncRuntime.configure(this)
         BackgroundHealthWorker.schedule(this)

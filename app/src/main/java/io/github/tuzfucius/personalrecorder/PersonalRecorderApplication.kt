@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** Process-level setup shared by the activity, listener and WorkManager workers. */
@@ -25,6 +26,14 @@ class PersonalRecorderApplication : Application() {
         applicationScope.launch {
             BackgroundSettingsStore(this@PersonalRecorderApplication).hideFromRecents
                 .collectLatest { recentTaskController.setExcludeFromRecents(it) }
+        }
+    }
+
+    /** Re-applies the policy after an Activity creates the app task. */
+    fun refreshRecentTaskPolicy() {
+        applicationScope.launch {
+            val hidden = BackgroundSettingsStore(this@PersonalRecorderApplication).hideFromRecents.first()
+            recentTaskController.setExcludeFromRecents(hidden)
         }
     }
 
