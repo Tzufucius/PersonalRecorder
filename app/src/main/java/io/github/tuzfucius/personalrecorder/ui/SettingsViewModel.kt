@@ -127,7 +127,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun validateCloud() {
-        runReconcile(ReconcileMode.FULL_RESTORE, discoverOnly = true)
+        runReconcile(ReconcileMode.FULL_RESTORE)
     }
 
     fun restoreFromGithub() {
@@ -177,33 +177,17 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun runReconcile(mode: ReconcileMode, discoverOnly: Boolean) {
+    private fun runReconcile(mode: ReconcileMode) {
         viewModelScope.launch {
             _restoreState.value = RestoreUiState(running = true, state = RestoreState.DISCOVERING, mode = mode)
             try {
-                if (discoverOnly) {
-                    val inventory = CloudSyncRuntime.discoverRemote(context, mode)
-                    _restoreState.value = RestoreUiState(
-                        running = false,
-                        state = RestoreState.COMPLETED,
-                        mode = mode,
-                        discovered = inventory?.descriptors?.size ?: 0,
-                    )
-                } else {
-                    _restoreState.value = RestoreUiState(running = true, state = RestoreState.DOWNLOADING, mode = mode)
-                    val report = CloudSyncRuntime.reconcileNow(context, mode)
-                    _restoreState.value = RestoreUiState(
-                        running = false,
-                        state = if (report.isSuccessful) RestoreState.COMPLETED else RestoreState.FAILED,
-                        mode = mode,
-                        discovered = report.discoveredRemote,
-                        downloaded = report.downloaded,
-                        uploaded = report.uploaded,
-                        skipped = report.skipped,
-                        conflicts = report.conflicts,
-                        error = report.results.firstOrNull { it.error != null }?.error?.message,
-                    )
-                }
+                val inventory = CloudSyncRuntime.discoverRemote(context, mode)
+                _restoreState.value = RestoreUiState(
+                    running = false,
+                    state = RestoreState.COMPLETED,
+                    mode = mode,
+                    discovered = inventory?.descriptors?.size ?: 0,
+                )
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
