@@ -101,6 +101,7 @@ data class ArchiveSyncResult(
     val status: ArchiveSyncStatus,
     val attempts: Int,
     val remoteReference: String? = null,
+    val wasAlreadyPresent: Boolean = false,
     val error: SyncError? = null,
     val retryExhausted: Boolean = false,
 ) {

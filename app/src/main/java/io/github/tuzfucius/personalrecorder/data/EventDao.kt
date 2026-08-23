@@ -49,12 +49,23 @@ interface EventDao {
     @Query("SELECT * FROM archive_segments ORDER BY date ASC, startMillis ASC")
     fun getArchiveSegments(): Flow<List<ArchiveSegmentEntity>>
 
+    @Query("SELECT segmentId FROM archive_segments")
+    suspend fun getArchivedSegmentIds(): List<String>
+
     @Query(
         "SELECT * FROM archive_segments WHERE closed = 1 " +
             "AND segmentId NOT IN (SELECT segmentId FROM archive_sync_states WHERE backend = :backend AND status = 'SYNCED') " +
             "ORDER BY startMillis ASC"
     )
     fun getPendingArchiveSegments(backend: String): Flow<List<ArchiveSegmentEntity>>
+
+    @Query(
+        "SELECT * FROM archive_segments WHERE closed = 1 " +
+            "AND segmentId NOT IN (SELECT segmentId FROM archive_sync_states WHERE backend = :backend AND status = 'SYNCED') " +
+            "AND (:includeFailed OR segmentId NOT IN (SELECT segmentId FROM archive_sync_states WHERE backend = :backend AND status = 'FAILED')) " +
+            "ORDER BY startMillis ASC"
+    )
+    suspend fun getPendingArchiveSegmentsForSync(backend: String, includeFailed: Boolean): List<ArchiveSegmentEntity>
 
     @Query("SELECT * FROM archive_segments WHERE date = :date ORDER BY startMillis ASC")
     suspend fun getArchiveSegmentsForDate(date: String): List<ArchiveSegmentEntity>

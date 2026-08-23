@@ -16,6 +16,7 @@ data class CloudSyncSettings(
     val githubEnabled: Boolean = false,
     val googleDriveEnabled: Boolean = false,
     val githubConnected: Boolean = false,
+    val githubUsername: String? = null,
     val googleDriveConnected: Boolean = false,
     val frequency: SyncFrequency = SyncFrequency.TWICE_DAILY
 )
@@ -35,6 +36,7 @@ class CloudSyncSettingsStore(context: Context) {
                     githubEnabled = preferences[GITHUB_ENABLED] ?: false,
                     googleDriveEnabled = preferences[GOOGLE_DRIVE_ENABLED] ?: false,
                     githubConnected = preferences[GITHUB_CONNECTED] ?: false,
+                    githubUsername = preferences[GITHUB_USERNAME],
                     googleDriveConnected = preferences[GOOGLE_DRIVE_CONNECTED] ?: false,
                     frequency = preferences[FREQUENCY]
                         ?.let { value -> runCatching { SyncFrequency.valueOf(value) }.getOrNull() }
@@ -56,6 +58,12 @@ class CloudSyncSettingsStore(context: Context) {
         appContext.cloudSyncDataStore.edit { it[GITHUB_CONNECTED] = connected }
     }
 
+    suspend fun setGithubUsername(username: String?) {
+        appContext.cloudSyncDataStore.edit {
+            if (username.isNullOrBlank()) it.remove(GITHUB_USERNAME) else it[GITHUB_USERNAME] = username
+        }
+    }
+
     suspend fun setGoogleDriveConnected(connected: Boolean) {
         appContext.cloudSyncDataStore.edit { it[GOOGLE_DRIVE_CONNECTED] = connected }
     }
@@ -68,6 +76,7 @@ class CloudSyncSettingsStore(context: Context) {
         val GITHUB_ENABLED = booleanPreferencesKey("github_enabled")
         val GOOGLE_DRIVE_ENABLED = booleanPreferencesKey("google_drive_enabled")
         val GITHUB_CONNECTED = booleanPreferencesKey("github_connected")
+        val GITHUB_USERNAME = stringPreferencesKey("github_username")
         val GOOGLE_DRIVE_CONNECTED = booleanPreferencesKey("google_drive_connected")
         val FREQUENCY = stringPreferencesKey("frequency")
     }
