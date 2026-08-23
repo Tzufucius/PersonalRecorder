@@ -32,11 +32,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -101,12 +99,11 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel? = null) {
         if (settings?.githubConnected == true) token = ""
     }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("设置") }) }) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
             item {
                 Text("云端归档", style = MaterialTheme.typography.headlineSmall)
                 Spacer(Modifier.height(4.dp))
@@ -163,7 +160,6 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel? = null) {
                     TextButton(onClick = viewModel::clearMessage) { Text("关闭") }
                 }
             }
-        }
     }
     restorePrompt?.let { prompt ->
         AlertDialog(
@@ -183,12 +179,11 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel? = null) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsScreenFallback() {
-    Scaffold(topBar = { TopAppBar(title = { Text("设置") }) }) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
             item { Text("云端归档", style = MaterialTheme.typography.headlineSmall) }
             item {
                 Text("GitHub 私有仓库", style = MaterialTheme.typography.titleMedium)
@@ -214,7 +209,6 @@ private fun SettingsScreenFallback() {
             }
             item { Text("每天两次") }
             item { Button(onClick = {}, modifier = Modifier.fillMaxWidth()) { Text("立即同步") } }
-        }
     }
 }
 
