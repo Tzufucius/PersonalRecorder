@@ -1,6 +1,7 @@
 package io.github.tuzfucius.personalrecorder.statistics
 
 import io.github.tuzfucius.personalrecorder.collector.NotificationFilter
+import io.github.tuzfucius.personalrecorder.data.EventEntity
 import io.github.tuzfucius.personalrecorder.data.StatisticsEventRow
 import io.github.tuzfucius.personalrecorder.settings.FilterSettings
 import java.time.LocalDate
@@ -49,7 +50,20 @@ data class StatisticsEventItem(
     val bigText: String? = null,
     val isOngoing: Boolean = false,
     val isGroupSummary: Boolean = false,
-)
+) {
+    companion object {
+        fun fromEvent(event: EventEntity): StatisticsEventItem = StatisticsEventItem(
+            id = event.id,
+            timestamp = event.timestamp,
+            packageName = event.packageName,
+            title = event.title,
+            content = event.content,
+            bigText = event.bigText,
+            isOngoing = event.isOngoing,
+            isGroupSummary = event.isGroupSummary,
+        )
+    }
+}
 
 /** The common eligibility rule for charts, KPI values, and details. */
 fun StatisticsEventRow.isEligible(ownPackageName: String, settings: FilterSettings): Boolean =
