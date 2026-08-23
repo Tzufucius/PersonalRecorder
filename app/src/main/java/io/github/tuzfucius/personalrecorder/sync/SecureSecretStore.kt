@@ -11,7 +11,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/** Encrypts OAuth tokens and temporary PKCE material with an Android Keystore AES key. */
+/** Encrypts the GitHub access token with an Android Keystore AES key. */
 class SecureSecretStore(context: Context, private val alias: String = DEFAULT_ALIAS) {
     private val preferences = context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 

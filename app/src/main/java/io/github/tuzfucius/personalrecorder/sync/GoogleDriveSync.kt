@@ -5,11 +5,24 @@ import android.app.Activity
 import android.app.PendingIntent
 import com.google.android.gms.common.api.Scope
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
+import com.google.android.gms.auth.api.identity.ClearTokenRequest
 import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.auth.api.identity.RevokeAccessRequest
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
 const val GOOGLE_DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
+
+sealed interface GoogleTokenResult {
+    data class Available(val accessToken: String) : GoogleTokenResult
+    data object AuthorizationRequired : GoogleTokenResult
+    data class Failed(val message: String, val cause: Throwable? = null) : GoogleTokenResult
+}
+
+interface GoogleDriveAccessTokenProvider {
+    suspend fun getAccessToken(): GoogleTokenResult
+    suspend fun clearToken(accessToken: String)
+}
 
 sealed interface GoogleDriveAuthorizationResult {
     data class Authorized(val accessToken: String) : GoogleDriveAuthorizationResult
@@ -24,6 +37,51 @@ interface GoogleDriveAuthorizationClient {
 
 class GoogleDriveAuthorizationCoordinator(private val client: GoogleDriveAuthorizationClient) {
     suspend fun authorize(): GoogleDriveAuthorizationResult = client.authorize(setOf(GOOGLE_DRIVE_FILE_SCOPE))
+}
+
+/** Worker-safe provider. It never launches a PendingIntent and never persists access tokens. */
+class PlayServicesGoogleDriveAccessTokenProvider(context: Context) : GoogleDriveAccessTokenProvider {
+    private val appContext = context.applicationContext
+
+    override suspend fun getAccessToken(): GoogleTokenResult =
+        suspendCancellableCoroutine { continuation ->
+            val request = AuthorizationRequest.builder()
+                .setRequestedScopes(mutableListOf(Scope(GOOGLE_DRIVE_FILE_SCOPE)))
+                .build()
+            Identity.getAuthorizationClient(appContext)
+                .authorize(request)
+                .addOnSuccessListener { result ->
+                    val token = result.accessToken
+                    continuation.resume(
+                        when {
+                            result.hasResolution() -> GoogleTokenResult.AuthorizationRequired
+                            token.isNullOrBlank() -> GoogleTokenResult.Failed("Google Drive 授权未返回 access token")
+                            else -> GoogleTokenResult.Available(token)
+                        }
+                    )
+                }
+                .addOnFailureListener { error ->
+                    continuation.resume(GoogleTokenResult.Failed("Google Drive 授权失败", error))
+                }
+        }
+
+    override suspend fun clearToken(accessToken: String) {
+        suspendCancellableCoroutine { continuation ->
+            Identity.getAuthorizationClient(appContext)
+                .clearToken(ClearTokenRequest.builder().setToken(accessToken).build())
+                .addOnSuccessListener { continuation.resume(Unit) }
+                .addOnFailureListener { continuation.resume(Unit) }
+        }
+    }
+
+    suspend fun revokeAccess() {
+        suspendCancellableCoroutine { continuation ->
+            Identity.getAuthorizationClient(appContext)
+                .revokeAccess(RevokeAccessRequest.builder().build())
+                .addOnSuccessListener { continuation.resume(Unit) }
+                .addOnFailureListener { continuation.resume(Unit) }
+        }
+    }
 }
 
 /**

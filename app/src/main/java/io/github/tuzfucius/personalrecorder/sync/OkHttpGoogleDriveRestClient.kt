@@ -15,15 +15,11 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
-fun interface AccessTokenProvider {
-    suspend fun accessToken(): String?
-}
-
 class SyncHttpException(val statusCode: Int, override val message: String) : Exception(message)
 
 /** Drive v3 REST implementation. Tokens are supplied at call time and never logged. */
 class OkHttpGoogleDriveRestClient(
-    private val tokenProvider: AccessTokenProvider,
+    private val tokenProvider: GoogleDriveAccessTokenProvider,
     private val httpClient: OkHttpClient = OkHttpClient(),
     private val json: Json = Json { ignoreUnknownKeys = true },
 ) : GoogleDriveRestClient {
@@ -79,13 +75,27 @@ class OkHttpGoogleDriveRestClient(
         .header("Accept", "application/json")
 
     private suspend fun executeJson(request: Request): kotlinx.serialization.json.JsonObject {
-        val token = tokenProvider.accessToken() ?: throw SyncHttpException(401, "Google Drive 未授权")
-        val authorized = request.newBuilder().header("Authorization", "Bearer $token").build()
-        httpClient.newCall(authorized).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw SyncHttpException(response.code, "Google Drive HTTP ${response.code}")
-            return if (body.isBlank()) buildJsonObject { } else json.parseToJsonElement(body).jsonObject
+        var lastToken: String? = null
+        repeat(2) { attempt ->
+            val token = when (val result = tokenProvider.getAccessToken()) {
+                is GoogleTokenResult.Available -> result.accessToken
+                GoogleTokenResult.AuthorizationRequired -> throw SyncHttpException(401, "Google Drive 需要重新授权")
+                is GoogleTokenResult.Failed -> throw SyncHttpException(401, result.message)
+            }
+            lastToken = token
+            val authorized = request.newBuilder().header("Authorization", "Bearer $token").build()
+            httpClient.newCall(authorized).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (response.isSuccessful) {
+                    return if (body.isBlank()) buildJsonObject { } else json.parseToJsonElement(body).jsonObject
+                }
+                if (response.code != 401 || attempt == 1) {
+                    throw SyncHttpException(response.code, "Google Drive HTTP ${response.code}")
+                }
+            }
+            tokenProvider.clearToken(requireNotNull(lastToken))
         }
+        throw SyncHttpException(401, "Google Drive 未授权")
     }
 
     private fun encodeQuery(value: String): String = java.net.URLEncoder.encode(value, Charsets.UTF_8.name())
