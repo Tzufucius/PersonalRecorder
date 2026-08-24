@@ -21,6 +21,16 @@ class StatisticsChartsTest {
     }
 
     @Test
+    fun fullResultMappingKeepsSubsetColorsStable() {
+        val allPackages = listOf("com.example.alpha", "com.example.beta", "com.example.gamma")
+        val fullMapping = packageColorIndices(allPackages)
+        val donutSubset = fullMapping.filterKeys { it != "com.example.beta" }
+
+        assertEquals(fullMapping["com.example.alpha"], donutSubset["com.example.alpha"])
+        assertEquals(fullMapping["com.example.gamma"], donutSubset["com.example.gamma"])
+    }
+
+    @Test
     fun donutHitTestUsesAngleAndRejectsCenter() {
         assertEquals(0, donutHitTest(50f, 5f, 100f, 100f, listOf(1, 1), 20f))
         assertEquals(1, donutHitTest(50f, 95f, 100f, 100f, listOf(1, 1), 20f))

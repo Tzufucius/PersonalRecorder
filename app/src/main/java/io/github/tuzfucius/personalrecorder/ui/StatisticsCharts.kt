@@ -99,6 +99,7 @@ fun HourlyChart(
     values: List<HourlyCount>,
     breakdowns: List<HourlyBreakdown>,
     apps: List<AppCount>,
+    colorIndices: Map<String, Int>,
     selectedHour: Int?,
     onHourClick: (Int) -> Unit,
     labelFor: (String) -> String,
@@ -109,7 +110,6 @@ fun HourlyChart(
         return
     }
     val packageNames = remember(apps) { apps.map { it.packageName } }
-    val colorIndices = remember(packageNames) { packageColorIndices(packageNames) }
     val chartSeries = remember(values, breakdowns, packageNames) {
         val seriesValues = packageNames.map { packageName ->
             values.map { value ->
@@ -281,7 +281,11 @@ fun DailyTrendChart(
             }
             .semantics {
                 contentDescription = values.joinToString(context.getString(R.string.list_separator)) {
-                    "${it.date} ${it.count}"
+                    context.getString(
+                        R.string.daily_point_accessibility,
+                        formatLocalizedDate(context, it.date),
+                        context.resources.getQuantityString(R.plurals.notifications_count, it.count, it.count),
+                    )
                 }
                 role = Role.Button
             },
@@ -309,6 +313,7 @@ internal fun mapPlotXToIndex(x: Float, width: Float, itemCount: Int, insetPx: Fl
 fun AppDonutChart(
     values: List<AppCount>,
     labelFor: (String) -> String,
+    colorIndices: Map<String, Int>,
     selectedPackage: String? = null,
     otherExpanded: Boolean = false,
     onAppClick: (String) -> Unit = {},
@@ -328,9 +333,6 @@ fun AppDonutChart(
             addAll(top)
             if (other > 0) add(AppCount(OTHER_KEY, other))
         }
-    }
-    val colorIndices = remember(display.map { it.packageName }) {
-        packageColorIndices(display.mapNotNull { it.packageName.takeUnless { name -> name == OTHER_KEY } })
     }
     val outlineColor = MaterialTheme.colorScheme.outline
     val colorFor = { packageName: String ->

@@ -40,6 +40,7 @@ class StatisticsChartsInstrumentedTest {
                 AppDonutChart(
                     values = listOf(AppCount("app.one", 4), AppCount("app.two", 2)),
                     labelFor = { it },
+                    colorIndices = packageColorIndices(listOf("app.one", "app.two")),
                     onAppClick = { selected = it },
                 )
             }
@@ -59,6 +60,7 @@ class StatisticsChartsInstrumentedTest {
                 AppDonutChart(
                     values = (1..7).map { AppCount("app.$it", 1) },
                     labelFor = { it },
+                    colorIndices = packageColorIndices((1..7).map { "app.$it" }),
                     otherExpanded = expanded,
                     onOtherClick = { expanded = !expanded },
                 )
@@ -82,6 +84,7 @@ class StatisticsChartsInstrumentedTest {
                         values = values,
                         breakdowns = values.map { HourlyBreakdown(it.hour) },
                         apps = emptyList(),
+                        colorIndices = emptyMap(),
                         selectedHour = null,
                         onHourClick = { clicked += it },
                         labelFor = { it },

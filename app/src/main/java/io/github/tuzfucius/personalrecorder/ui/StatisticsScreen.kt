@@ -41,8 +41,6 @@ import io.github.tuzfucius.personalrecorder.statistics.StatisticsRange
 import io.github.tuzfucius.personalrecorder.statistics.StatisticsUiState
 import io.github.tuzfucius.personalrecorder.R
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
 
 @Composable
 fun StatisticsScreen(
@@ -50,6 +48,9 @@ fun StatisticsScreen(
 ) {
     val state = viewModel.uiState.collectAsStateWithLifecycle().value
     val context = LocalContext.current
+    val appColorIndices = remember(state.appCounts) {
+        packageColorIndices(state.appCounts.map { it.packageName })
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
@@ -84,6 +85,7 @@ fun StatisticsScreen(
                     values = state.hourlyCounts,
                     breakdowns = state.hourlyBreakdowns,
                     apps = state.appCounts,
+                    colorIndices = appColorIndices,
                     selectedHour = state.selection.hour,
                     onHourClick = viewModel::selectHour,
                     labelFor = { appLabel(context, it) },
@@ -102,6 +104,7 @@ fun StatisticsScreen(
                 AppDonutChart(
                     values = state.appCounts,
                     labelFor = { appLabel(context, it) },
+                    colorIndices = appColorIndices,
                     selectedPackage = state.selection.app,
                     otherExpanded = state.isOtherAppsExpanded,
                     onAppClick = viewModel::selectApp,
@@ -311,7 +314,4 @@ private fun rangeLabel(context: Context, range: StatisticsRange): String = when 
 
 private fun hourLabel(context: Context, hour: Int): String = context.getString(R.string.hour_label, hour)
 
-private fun formatDate(context: Context, date: LocalDate): String =
-    DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
-        .withLocale(context.resources.configuration.locales[0])
-        .format(date)
+private fun formatDate(context: Context, date: LocalDate): String = formatLocalizedDate(context, date)

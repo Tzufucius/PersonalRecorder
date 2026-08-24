@@ -49,6 +49,7 @@
     <string name="no_hour_data">No hourly data</string>
     <string name="no_daily_data">No daily data</string>
     <string name="no_app_source_data">No app source data</string>
+    <string name="daily_point_accessibility">%1$s, %2$s</string>
     <string name="section_hourly">Hourly distribution</string>
     <string name="section_app_source">App sources</string>
     <string name="section_app_ranking">App ranking</string>
@@ -142,6 +143,7 @@
     <string name="collapse">Collapse</string>
     <string name="no_unresolved_conflicts">No unresolved conflicts</string>
     <string name="conflict_metadata">Date: %1$s  segment: %2$s  Conflicts: %3$s  Created: %4$s</string>
+    <string name="conflict_unknown_summary">Archive conflict details are available locally.</string>
     <string name="local_remote_paths">Local: %1$s  Remote: %2$s</string>
     <string name="mark_handled">Mark handled</string>
 
@@ -180,4 +182,5 @@
     <plurals name="remote_files_count"><item quantity="one">%d remote file found</item><item quantity="other">%d remote files found</item></plurals>
     <plurals name="conflicts_count"><item quantity="one">%d conflict</item><item quantity="other">%d conflicts</item></plurals>
     <plurals name="details_count"><item quantity="one">%d detail</item><item quantity="other">%d details</item></plurals>
+    <plurals name="conflicting_events"><item quantity="one">%d conflicting event</item><item quantity="other">%d conflicting events</item></plurals>
 </resources>

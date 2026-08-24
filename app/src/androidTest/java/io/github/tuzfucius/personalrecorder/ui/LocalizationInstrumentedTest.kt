@@ -11,7 +11,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.util.Locale
+import java.time.LocalDate
 
 @RunWith(AndroidJUnit4::class)
 class LocalizationInstrumentedTest {
@@ -22,12 +22,12 @@ class LocalizationInstrumentedTest {
         val english = localized("en-US")
         val chinese = localized("zh-CN")
 
-        assertEquals(english.getString(R.string.nav_records), english.getString(R.string.nav_records))
-        assertEquals(english.getString(R.string.nav_statistics), english.getString(R.string.nav_statistics))
-        assertEquals(english.getString(R.string.nav_settings), english.getString(R.string.nav_settings))
-        assertNotEquals(english.getString(R.string.nav_records), chinese.getString(R.string.nav_records))
-        assertNotEquals(english.getString(R.string.nav_statistics), chinese.getString(R.string.nav_statistics))
-        assertNotEquals(english.getString(R.string.nav_settings), chinese.getString(R.string.nav_settings))
+        assertEquals("Records", english.getString(R.string.nav_records))
+        assertEquals("Statistics", english.getString(R.string.nav_statistics))
+        assertEquals("Settings", english.getString(R.string.nav_settings))
+        assertEquals("记录", chinese.getString(R.string.nav_records))
+        assertEquals("统计", chinese.getString(R.string.nav_statistics))
+        assertEquals("设置", chinese.getString(R.string.nav_settings))
     }
 
     @Test
@@ -42,6 +42,29 @@ class LocalizationInstrumentedTest {
         assertNotEquals(englishCount, chineseCount)
         assertTrue(englishCount.contains("2"))
         assertTrue(chineseCount.contains("2"))
+    }
+
+    @Test
+    fun dailyPointAccessibilityUsesLocaleDateAndPlural() {
+        val english = localized("en-US")
+        val chinese = localized("zh-CN")
+        val date = LocalDate.of(2026, 8, 24)
+        val englishPoint = english.getString(
+            R.string.daily_point_accessibility,
+            formatLocalizedDate(english, date),
+            english.resources.getQuantityString(R.plurals.notifications_count, 2, 2),
+        )
+        val chinesePoint = chinese.getString(
+            R.string.daily_point_accessibility,
+            formatLocalizedDate(chinese, date),
+            chinese.resources.getQuantityString(R.plurals.notifications_count, 2, 2),
+        )
+
+        assertTrue(englishPoint.contains("2026"))
+        assertTrue(englishPoint.contains("2 notifications"))
+        assertTrue(chinesePoint.contains("2026"))
+        assertTrue(chinesePoint.contains("2 条通知"))
+        assertNotEquals(englishPoint, chinesePoint)
     }
 
     private fun localized(tag: String): Context {

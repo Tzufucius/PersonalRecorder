@@ -481,20 +481,23 @@ private fun ConflictDetailsCard(
             } else {
                 conflicts.forEach { conflict ->
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        val conflictCount = extractConflictCount(conflict.summary)
                         Text(conflict.relativePath, style = MaterialTheme.typography.bodyMedium)
                         Text(
                             context.getString(
                                 R.string.conflict_metadata,
                                 conflict.relativePath.split('/').getOrNull(3) ?: context.getString(R.string.no_value),
                                 conflict.segmentId,
-                                conflict.summary.substringAfter("发现 ").substringBefore(" 个").ifBlank { context.getString(R.string.no_value) },
+                                conflictCount?.toString() ?: context.getString(R.string.no_value),
                                 formatSyncTime(context, conflict.createdAt),
                             ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
-                            conflict.summary,
+                            conflictCount?.let {
+                                context.resources.getQuantityString(R.plurals.conflicting_events, it, it)
+                            } ?: context.getString(R.string.conflict_unknown_summary),
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall,
                         )
