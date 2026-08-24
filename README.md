@@ -130,7 +130,7 @@ Restore keeps local data separate until conflicts are resolved. Synchronization 
 
 ### Download
 
-Download the latest signed APK from [GitHub Releases](https://github.com/Tuzfucius/PersonalRecorder/releases).
+Download the latest signed APK from [GitHub Releases](https://github.com/Tzufucius/PersonalRecorder/releases).
 
 GitHub Releases contain two kinds of signed APKs:
 

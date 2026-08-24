@@ -130,7 +130,7 @@ Room 是设备上的实时数据源。归档器按半日导出 JSONL 文件，�
 
 ### 下载
 
-可从 [GitHub Releases](https://github.com/Tuzfucius/PersonalRecorder/releases) 下载最新的已签名 APK。
+可从 [GitHub Releases](https://github.com/Tzufucius/PersonalRecorder/releases) 下载最新的已签名 APK。
 
 GitHub Releases 包含两类已签名 APK：
 
