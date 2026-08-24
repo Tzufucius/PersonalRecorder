@@ -18,17 +18,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Validate release tag
         id: version
@@ -36,17 +37,27 @@ jobs:
         run: |
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
-          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "Invalid release tag. Expected vMAJOR.MINOR.PATCH."
             exit 1
           fi
 
           version_name="${tag#v}"
           IFS='.' read -r major minor patch <<< "$version_name"
-          stable_version_code=$((10#$major * 10000 + 10#$minor * 100 + 10#$patch))
-          version_code=$((stable_version_code * 1000))
-          if (( version_code < 1 || version_code > 2147483647 )); then
+          base_code=$((major * 10000 + minor * 100 + patch))
+          version_code=$((base_code * 1000))
+          if (( version_code < 1 || version_code > 2147482648 )); then
             echo "Invalid release versionCode."
+            exit 1
+          fi
+          if (( version_code == 1 )); then
+            echo "Stable versionCode must not use the local default value 1."
+            exit 1
+          fi
+
+          tag_commit="$(git rev-list -n 1 "$tag")"
+          if [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
+            echo "Release tag does not resolve to the workflow commit."
             exit 1
           fi
 
@@ -98,6 +109,14 @@ jobs:
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: ./gradlew assembleRelease
 
+      - name: Upload release mapping
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-mapping-${{ github.ref_name }}
+          path: app/build/outputs/mapping/release/
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Verify signature and prepare release assets
         shell: bash
         run: |
@@ -111,7 +130,23 @@ jobs:
           apksigner_dir="$(find "$build_tools_dir" -mindepth 1 -maxdepth 1 -type d -print | sort -V | tail -n 1)"
           apksigner="$apksigner_dir/apksigner"
           test -x "$apksigner"
-          "$apksigner" verify --verbose "$release_apk"
+          "$apksigner" verify --verbose --print-certs "$release_apk"
+
+          apkanalyzer="$(command -v apkanalyzer || true)"
+          if [[ -z "$apkanalyzer" ]]; then
+            apkanalyzer="$sdk_dir/cmdline-tools/latest/bin/apkanalyzer"
+          fi
+          test -x "$apkanalyzer" || test -x "${apkanalyzer}.bat"
+          if [[ -x "$apkanalyzer" ]]; then
+            analyzer_cmd="$apkanalyzer"
+          else
+            analyzer_cmd="${apkanalyzer}.bat"
+          fi
+          test "$("$analyzer_cmd" manifest application-id "$release_apk")" = "io.github.tuzfucius.personalrecorder"
+          test "$("$analyzer_cmd" manifest version-name "$release_apk")" = "${{ steps.version.outputs.version_name }}"
+          test "$("$analyzer_cmd" manifest version-code "$release_apk")" = "${{ steps.version.outputs.version_code }}"
+          test "$("$analyzer_cmd" manifest min-sdk "$release_apk")" = "29"
+          test "$("$analyzer_cmd" manifest target-sdk "$release_apk")" = "36"
 
           output_apk="PersonalRecorder-${GITHUB_REF_NAME}.apk"
           cp "$release_apk" "$output_apk"
@@ -137,3 +172,8 @@ jobs:
               --generate-notes \
               --verify-tag
           fi
+
+      - name: Remove release keystore
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/personal-recorder-release.jks"

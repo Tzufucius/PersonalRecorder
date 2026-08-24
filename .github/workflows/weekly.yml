@@ -23,7 +23,7 @@ jobs:
       stable_tag: ${{ steps.changes.outputs.stable_tag }}
     steps:
       - name: Checkout full history
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -44,7 +44,7 @@ jobs:
 
           stable_tag=""
           while IFS= read -r candidate; do
-            if [[ ! "$candidate" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            if [[ ! "$candidate" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
               continue
             fi
             if git merge-base --is-ancestor "$candidate" HEAD; then
@@ -77,19 +77,18 @@ jobs:
       contents: write
     steps:
       - name: Checkout full history
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Resolve Weekly version
         id: version
@@ -98,13 +97,14 @@ jobs:
           set -euo pipefail
 
           weekly_date="$(TZ=Asia/Hong_Kong date +%Y.%m.%d)"
-          release_tag="weekly-${weekly_date}"
+          short_sha="${GITHUB_SHA:0:7}"
+          release_tag="weekly-${weekly_date}-${short_sha}"
           base_version="1.0.0"
           should_build=true
 
           stable_tag=""
           while IFS= read -r candidate; do
-            if [[ ! "$candidate" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            if [[ ! "$candidate" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
               continue
             fi
             if git merge-base --is-ancestor "$candidate" HEAD; then
@@ -116,7 +116,7 @@ jobs:
           if [[ -n "$stable_tag" ]]; then
             base_version="${stable_tag#v}"
             IFS='.' read -r major minor patch <<< "$base_version"
-            base_code=$((10#$major * 10000 + 10#$minor * 100 + 10#$patch))
+            base_code=$((major * 10000 + minor * 100 + patch))
             stable_version_code=$((base_code * 1000))
             commits_since_stable="$(git rev-list --count "${stable_tag}..HEAD")"
 
@@ -126,6 +126,9 @@ jobs:
               version_code=0
             elif (( commits_since_stable > 999 )); then
               echo "Weekly version range is exhausted; publish a new stable Tag."
+              exit 1
+            elif (( stable_version_code > 2147482648 )); then
+              echo "Stable versionCode leaves no room for Weekly upgrades."
               exit 1
             else
               version_code=$((stable_version_code + commits_since_stable))
@@ -200,6 +203,15 @@ jobs:
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: ./gradlew assembleRelease
 
+      - name: Upload Weekly mapping
+        if: steps.version.outputs.should_build == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: weekly-mapping-${{ steps.version.outputs.release_tag }}
+          path: app/build/outputs/mapping/release/
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Verify signature and prepare Weekly assets
         if: steps.version.outputs.should_build == 'true'
         shell: bash
@@ -214,7 +226,23 @@ jobs:
           apksigner_dir="$(find "$build_tools_dir" -mindepth 1 -maxdepth 1 -type d -print | sort -V | tail -n 1)"
           apksigner="$apksigner_dir/apksigner"
           test -x "$apksigner"
-          "$apksigner" verify --verbose "$release_apk"
+          "$apksigner" verify --verbose --print-certs "$release_apk"
+
+          apkanalyzer="$(command -v apkanalyzer || true)"
+          if [[ -z "$apkanalyzer" ]]; then
+            apkanalyzer="$sdk_dir/cmdline-tools/latest/bin/apkanalyzer"
+          fi
+          test -x "$apkanalyzer" || test -x "${apkanalyzer}.bat"
+          if [[ -x "$apkanalyzer" ]]; then
+            analyzer_cmd="$apkanalyzer"
+          else
+            analyzer_cmd="${apkanalyzer}.bat"
+          fi
+          test "$("$analyzer_cmd" manifest application-id "$release_apk")" = "io.github.tuzfucius.personalrecorder"
+          test "$("$analyzer_cmd" manifest version-name "$release_apk")" = "${{ steps.version.outputs.version_name }}"
+          test "$("$analyzer_cmd" manifest version-code "$release_apk")" = "${{ steps.version.outputs.version_code }}"
+          test "$("$analyzer_cmd" manifest min-sdk "$release_apk")" = "29"
+          test "$("$analyzer_cmd" manifest target-sdk "$release_apk")" = "36"
 
           output_apk="PersonalRecorder-${{ steps.version.outputs.release_tag }}.apk"
           cp "$release_apk" "$output_apk"
@@ -231,6 +259,14 @@ jobs:
           output_apk="PersonalRecorder-${tag}.apk"
           checksum_file="${output_apk}.sha256"
 
+          if git rev-parse --verify --quiet "refs/tags/${tag}^{commit}" >/dev/null; then
+            tag_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+            if [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
+              echo "Weekly tag already points to a different commit."
+              exit 1
+            fi
+          fi
+
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "$output_apk" "$checksum_file" --clobber
           else
@@ -242,3 +278,8 @@ jobs:
               --generate-notes \
               --target "$GITHUB_SHA"
           fi
+
+      - name: Remove Weekly release keystore
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/personal-recorder-release.jks"
