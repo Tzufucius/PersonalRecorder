@@ -66,12 +66,31 @@ import kotlin.math.roundToInt
 private val appPalette = listOf(
     Color(0xFF1565C0), Color(0xFF2E7D32), Color(0xFFEF6C00), Color(0xFF6A1B9A),
     Color(0xFF00838F), Color(0xFFC62828), Color(0xFF5D4037), Color(0xFFAD1457),
+    Color(0xFF0277BD), Color(0xFF558B2F), Color(0xFFD84315), Color(0xFF4527A0),
 )
 
 internal fun appColorIndex(packageName: String): Int =
     Math.floorMod(packageName.hashCode(), appPalette.size)
 
-private fun appColor(packageName: String): Color = appPalette[appColorIndex(packageName)]
+/** Assigns palette slots deterministically while resolving collisions for the current result. */
+internal fun packageColorIndices(packageNames: Collection<String>): Map<String, Int> {
+    val used = BooleanArray(appPalette.size)
+    return packageNames
+        .distinct()
+        .sorted()
+        .associateWith { packageName ->
+            val base = appColorIndex(packageName)
+            val slot = (0 until appPalette.size)
+                .map { offset -> (base + offset) % appPalette.size }
+                .firstOrNull { !used[it] }
+                ?: base
+            used[slot] = true
+            slot
+        }
+}
+
+private fun appColor(packageName: String, colorIndices: Map<String, Int>): Color =
+    appPalette[colorIndices[packageName] ?: appColorIndex(packageName)]
 
 @Composable
 fun HourlyChart(
@@ -87,6 +106,7 @@ fun HourlyChart(
         return
     }
     val packageNames = remember(apps) { apps.map { it.packageName } }
+    val colorIndices = remember(packageNames) { packageColorIndices(packageNames) }
     val chartSeries = remember(values, breakdowns, packageNames) {
         val seriesValues = packageNames.map { packageName ->
             values.map { value ->
@@ -107,7 +127,7 @@ fun HourlyChart(
             }
         }
     }
-    val lineComponents = (if (packageNames.isEmpty()) listOf(Color.Transparent) else packageNames.map(::appColor))
+    val lineComponents = (if (packageNames.isEmpty()) listOf(Color.Transparent) else packageNames.map { appColor(it, colorIndices) })
         .map { color -> rememberLineComponent(fill(color), Defaults.COLUMN_WIDTH.dp) }
     val columnLayer = rememberColumnCartesianLayer(
         columnProvider = ColumnCartesianLayer.ColumnProvider.series(lineComponents),
@@ -189,7 +209,7 @@ fun HourlyChart(
                             Spacer(
                                 modifier = Modifier
                                     .size(8.dp)
-                                    .background(appColor(packageName), CircleShape),
+                                    .background(appColor(packageName, colorIndices), CircleShape),
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
@@ -300,9 +320,12 @@ fun AppDonutChart(
             if (other > 0) add(AppCount(OTHER_KEY, other))
         }
     }
+    val colorIndices = remember(display.map { it.packageName }) {
+        packageColorIndices(display.mapNotNull { it.packageName.takeUnless { name -> name == OTHER_KEY } })
+    }
     val outlineColor = MaterialTheme.colorScheme.outline
     val colorFor = { packageName: String ->
-        if (packageName == OTHER_KEY) outlineColor else appColor(packageName)
+        if (packageName == OTHER_KEY) outlineColor else appColor(packageName, colorIndices)
     }
     val total = display.sumOf { it.count }.coerceAtLeast(1).toFloat()
     val ringWidthPx = with(LocalDensity.current) { 28.dp.toPx() }

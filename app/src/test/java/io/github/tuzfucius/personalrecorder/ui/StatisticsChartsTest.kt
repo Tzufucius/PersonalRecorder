@@ -11,6 +11,16 @@ class StatisticsChartsTest {
     }
 
     @Test
+    fun packageColorAssignmentsResolveCollisionsForCurrentResult() {
+        val packages = listOf("com.example.app0", "com.example.app1", "com.example.chat")
+        val first = packageColorIndices(packages)
+        val second = packageColorIndices(packages.reversed())
+
+        assertEquals(first, second)
+        assertEquals(packages.size, first.values.distinct().size)
+    }
+
+    @Test
     fun donutHitTestUsesAngleAndRejectsCenter() {
         assertEquals(0, donutHitTest(50f, 5f, 100f, 100f, listOf(1, 1), 20f))
         assertEquals(1, donutHitTest(50f, 95f, 100f, 100f, listOf(1, 1), 20f))
