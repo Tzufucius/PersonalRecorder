@@ -10,7 +10,12 @@ Personal Recorder 是一款本地优先的 Android 通知记录应用。应用�
 
 可从 [GitHub Releases](https://github.com/Tuzfucius/PersonalRecorder/releases) 下载最新的已签名 APK。
 
-正式 APK 由版本 Tag 自动构建，同时提供 SHA-256 校验文件。Actions Artifact 是开发测试用 Debug 版本；GitHub Releases 才是面向普通用户的正式签名版本。
+GitHub Releases 包含两类已签名 APK：
+
+- `vMAJOR.MINOR.PATCH` 是维护者确认的稳定版本。
+- `weekly-YYYY.MM.DD` 是基于最新 `main` 代码自动构建的预发布版本。
+
+两类版本都会提供 SHA-256 校验文件。Actions Artifact 是开发测试用 Debug 版本；GitHub Releases 才是面向普通用户的可安装签名版本。
 
 你的手机每天都在持续接收关于工作和生活的信息：聊天消息、邮件提醒、日程会议、GitHub 动态、快递、支付、出行以及系统通知。大多数信息看过一次之后，就重新散落回不同的应用里。
 
@@ -142,6 +147,12 @@ Room 是设备上的实时数据源。归档器按半日导出 JSONL 文件，�
 
 将 `app/build/outputs/apk/debug/app-debug.apk` 安装到 Android 设备，并授予通知访问权限。只有需要远端归档同步和恢复时才需要配置 GitHub。
 
+### Weekly 自动构建
+
+GitHub Actions 会在每周一香港时间 00:00 检查 `main` 最近 7 天是否有提交。没有代码变化时不会构建 APK，也不会创建预发布版本。有变化时会构建签名 APK，并发布 `weekly-YYYY.MM.DD` 预发布版本；同一天重新运行会覆盖原有 Assets。
+
+Weekly 必须使用与稳定版本相同的 signing key，这样后续稳定版本才能覆盖安装 Weekly APK。版本名基于最新稳定 Tag，例如 `1.0.0-weekly.20260824`；在首个稳定 Tag 之前回退使用 `1.0.0`。
+
 ### 发布新版本
 
 推送语义化版本 Tag：
@@ -165,6 +176,15 @@ RELEASE_KEY_PASSWORD
 ```
 
 后续版本必须继续使用同一个 Android signing key，用户才能在已有应用上直接安装更新。不要把 keystore 或其编码内容提交到仓库。
+
+稳定版本会为每个语义化版本预留 999 个 Weekly versionCode：
+
+```text
+稳定版 versionCode = (MAJOR * 10000 + MINOR * 100 + PATCH) * 1000
+Weekly versionCode = 稳定版 versionCode + 稳定 Tag 之后的提交数
+```
+
+首个稳定 Tag 之前，Weekly versionCode 使用仓库提交总数，必须保持在 `1..999` 范围内。预留区间耗尽前需要先发布新的稳定 Tag。
 
 ## 限制
 
