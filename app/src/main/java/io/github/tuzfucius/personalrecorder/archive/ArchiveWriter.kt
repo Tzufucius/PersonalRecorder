@@ -41,6 +41,7 @@ class ArchiveWriter(
     filesDir: File,
     val zoneId: ZoneId = ZoneId.systemDefault(),
     private val json: Json = archiveJson,
+    var deviceInstanceId: String? = null,
 ) {
     private val archiveRoot = File(filesDir, "archive")
 
@@ -88,13 +89,15 @@ class ArchiveWriter(
         val manifest = File(directory, "manifest.json")
         if (!manifest.exists()) {
             val body = ArchiveManifest(
-                schemaVersion = 1,
+                schemaVersion = if (deviceInstanceId.isNullOrBlank()) 1 else 2,
                 date = date.toString(),
                 timeZone = zoneId.id,
                 segments = segments.sortedBy { it.slice.startMillis }.map {
                     ArchiveManifestSegment(it.slice.half.fileName, it.eventCount, it.sha256)
                 },
                 totalEventCount = segments.sumOf { it.eventCount },
+                sourceDeviceIds = deviceInstanceId?.let(::listOf).orEmpty(),
+                lastWriterDeviceId = deviceInstanceId,
             )
             manifest.writeText(json.encodeToString(body) + "\n", StandardCharsets.UTF_8)
         }
@@ -124,6 +127,7 @@ class ArchiveWriter(
             encodeDefaults = true
             explicitNulls = true
             prettyPrint = false
+            ignoreUnknownKeys = true
         }
     }
 }

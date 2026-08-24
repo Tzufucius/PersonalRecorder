@@ -29,6 +29,26 @@ data class ArchivedEvent(
         require(schemaVersion == 1) { "Unsupported archive event schema: $schemaVersion" }
     }
 
+    fun toPersonalEvent(): PersonalEvent = PersonalEvent(
+        id = id,
+        timestamp = timestamp,
+        source = source,
+        packageName = packageName,
+        title = title,
+        content = content,
+        bigText = bigText,
+        textLines = textLines,
+        notificationKey = notificationKey,
+        notificationId = notificationId,
+        category = category,
+        channelId = channelId,
+        groupKey = groupKey,
+        isOngoing = isOngoing,
+        isGroupSummary = isGroupSummary,
+        isClearable = isClearable,
+        createdAt = createdAt,
+    )
+
     companion object {
         fun fromPersonalEvent(event: PersonalEvent): ArchivedEvent = ArchivedEvent(
             id = event.id,
@@ -59,11 +79,23 @@ data class ArchiveManifest(
     val timeZone: String,
     val segments: List<ArchiveManifestSegment>,
     val totalEventCount: Int,
+    val sourceDeviceIds: List<String> = emptyList(),
+    val lastWriterDeviceId: String? = null,
 )
 
 @Serializable
 data class ArchiveManifestSegment(
     val fileName: String,
     val eventCount: Int,
-    val sha256: String,
+    val sha256: String = "",
 )
+
+fun mergeSourceDeviceIds(
+    local: Iterable<String>,
+    remote: Iterable<String>,
+    current: String?,
+): List<String> = (local + remote + listOfNotNull(current))
+    .map(String::trim)
+    .filter(String::isNotBlank)
+    .distinct()
+    .sorted()

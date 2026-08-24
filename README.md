@@ -1,54 +1,153 @@
 # Personal Recorder
 
-Personal Recorder 是一个 Android 本地个人事件采集器。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-## 当前能力
+Personal Recorder is a local-first Android notification recorder. It collects notification events on the device, keeps the live dataset in Room, and can write long-term JSONL archives. A private GitHub repository is an optional remote archive and restore source; the Room database is never uploaded.
 
-- `NotificationListenerService` 通知采集
-- Room 本地持久化
-- 统计页：今日、近 7 日、近 30 日事件分析
-- 最近通知查看
-- 通知访问权限状态检测
-- 应用白名单/黑名单筛选
-- 半日 JSONL 本地归档
-- GitHub 私有仓库云端同步
+> Turn Android notifications into a private, searchable, AI-ready personal activity log.
 
-Room 仍是应用本地实时数据源；JSONL 是长期归档格式。云端同步只上传半日归档文件，不上传 Room 数据库。
+Your phone already receives a continuous stream of information about your work and daily life: messages, email alerts, calendar reminders, GitHub activity, deliveries, payments, travel updates, and system notices. Most of it is read once and then disappears into individual apps.
 
-## GitHub 私有归档
+Personal Recorder captures that notification stream locally on Android and turns it into structured history you can keep, review, archive, and reuse later.
 
-PersonalRecorder 当前只使用 GitHub 私有仓库存储长期归档，不上传 Room 数据库。
+The project itself does **not** require an LLM and does **not** automatically send your notifications to an AI service. Its job is to preserve the data cleanly. When you want, the exported JSONL archive can be provided to ChatGPT, Claude, Gemini, a local model, a RAG pipeline, or a personal agent for further analysis.
 
-1. 创建 GitHub fine-grained Personal Access Token。
-2. 将目标私有仓库授予 `Contents: Read and write` 与 `Metadata: Read-only` 权限。
-3. 在 PersonalRecorder 的“设置”中粘贴 Token，并填写仓库名称。
-4. 默认仓库名称为 `PersonalRecorder-Archive`；仓库不存在时应用会尝试创建私有仓库。
-5. 应用会验证当前账号、仓库 owner、`private=true` 和写权限后才保存连接状态。
-6. PAT 只使用 Android Keystore 加密保存，不写入 DataStore、Room 或日志。
-7. 半日 JSONL 和完整日 `manifest.json` 通过 GitHub Contents API 创建或更新。
+**Archive it today. Ask an AI about it tomorrow.**
 
-Archive 固定为：
+## What can you do with it?
 
-- `00-12.jsonl`
-- `12-24.jsonl`
-- 完整日 `manifest.json`
+After collecting a day of notifications, you can use the archive as context for questions such as:
 
-Sync Frequency 支持 Twice Daily、Daily、Weekly。调度由 WorkManager 执行，允许系统延迟但不会跳过已闭合归档。
+- What important information did I receive today?
+- Which tasks or reminders still need my attention?
+- Summarize today's work-related notifications.
+- Did I miss any deadlines, meetings, review requests, or delivery updates?
+- Which apps generated most of my interruptions this week?
 
-Room 是本地实时数据源，JSONL 是长期归档，GitHub Private Repository 是当前唯一远端持久化存储。
+Personal Recorder is intentionally small: it focuses on building a reliable personal event archive instead of embedding a specific AI provider into the app.
 
-## 计划能力
+## Why notifications?
 
-- Android Share Target
-- Hermes 集成
+Notifications are one of the few information streams that Android already aggregates across otherwise unrelated apps. Gmail, messaging apps, calendars, developer tools, logistics services, and many other applications expose different APIs, but their important updates often converge in the Android notification system.
 
-## 使用
+That makes notifications a practical input layer for building a personal information history without integrating with every service individually.
 
-1. 使用 Android Studio 运行 Debug 版本。
-2. 打开 Personal Recorder，点击“授权通知访问”。
-3. 在系统设置中允许 Personal Recorder 访问通知。
-4. 返回应用，查看通知访问状态和最近事件。
-5. 在记录页右上角打开应用筛选，可选择全部应用、白名单或黑名单。
-6. 在统计页切换时间范围，查看小时分布、应用来源和每日趋势。
+```mermaid
+flowchart LR
+    A[Android apps] --> B[Notifications]
+    B --> C[Personal Recorder]
+    C --> D[Room live data]
+    C --> E[JSONL archive]
+    E --> F[Private GitHub repository]
+    E --> G[LLM / RAG / Personal Agent]
+```
 
-统计页使用通知事件作为统计单位，并排除进行中通知、组摘要和当前筛选之外的应用；记录页仍保留原始事件。
+## Privacy first
+
+- Notification collection happens locally on the Android device.
+- Room remains the live on-device database and is not uploaded.
+- Remote archive synchronization is optional.
+- The supported remote archive is a GitHub private repository controlled by the user.
+- Notification data is not automatically sent to any LLM.
+- Archive files are not end-to-end encrypted by Personal Recorder, so repository access control still matters.
+
+## Screenshots
+
+The current app provides three main views: browsing captured events, understanding notification patterns, and managing archive/background settings.
+
+| Records | Statistics | Settings |
+| --- | --- | --- |
+| Browse recent notifications and today's event stream. | See hourly distribution, app sources, rankings, and longer-range trends. | Configure GitHub archive, synchronization, restore, and background diagnostics. |
+| ![Records](docs/images/records.png) | ![Statistics](docs/images/statistics.png) | ![Settings](docs/images/settings.png) |
+
+The screenshots come from the Debug APK. Notification contents and account/repository identifiers were redacted before committing.
+
+## Features
+
+### Capture
+
+- Collect notifications through Android `NotificationListenerService`.
+- Filter ongoing notifications and group summaries from statistics.
+- Filter apps with allowlist/blocklist modes.
+- Keep recent events available for local review.
+
+### Understand
+
+- Statistics for today, the last 7 days, and the last 30 days.
+- Fixed 24-hour stacked chart showing which applications generated notifications at each hour.
+- Application source breakdown and ranking.
+- Date/hour/application filtering for detailed inspection.
+
+### Archive
+
+- Room is the realtime local data source.
+- Notification history can be exported into portable half-day JSONL archives.
+- Daily manifests describe available archive segments.
+- Archives can later be read by scripts, LLM tooling, RAG systems, or personal automation pipelines.
+
+### Sync and restore
+
+- Optional synchronization to a user-controlled GitHub private repository.
+- Restore archived history to another device.
+- Conflict detection and review instead of silent overwrite.
+- Background synchronization and runtime diagnostics.
+
+### Localization
+
+- English and Simplified Chinese UI resources.
+- The Android system locale selects the interface language automatically.
+- Locale-aware dates and quantity formatting.
+
+## Using an archive with an LLM
+
+Personal Recorder currently stops at **capture + archive**. AI analysis is an external workflow, which keeps the recorder independent of any model vendor.
+
+A simplified archive might contain events like:
+
+```json
+{"timestamp":"2026-08-24T09:15:00","app":"Gmail","title":"Project meeting","content":"Meeting moved to 15:00"}
+{"timestamp":"2026-08-24T10:02:00","app":"GitHub","title":"Pull request review requested"}
+{"timestamp":"2026-08-24T12:20:00","app":"Calendar","title":"Lab deadline tomorrow"}
+```
+
+You can then provide the relevant archive to an LLM with a prompt such as:
+
+```text
+Summarize today's important notifications.
+Extract actionable tasks, deadlines, meetings, and items that may still require a response.
+Group the result by urgency and source application.
+```
+
+The model or agent layer is deliberately separate from Personal Recorder. You decide what data to share, which model to use, and whether analysis happens locally or remotely.
+
+## Data and synchronization
+
+Room is the live on-device source. The archive writer exports JSONL files grouped by half day, while daily manifests describe the available archive parts. GitHub synchronization is optional and uses a private repository as an archive and restore endpoint.
+
+Restore keeps local data separate until conflicts are resolved. Synchronization does not upload the Room database and does not change notification collection rules.
+
+## Build and run
+
+```powershell
+.\gradlew.bat test
+.\gradlew.bat assembleDebug
+.\gradlew.bat connectedDebugAndroidTest
+```
+
+Install `app/build/outputs/apk/debug/app-debug.apk` on an Android device and grant notification access. GitHub configuration is only required if you want remote archive synchronization and restore.
+
+## Limitations
+
+- Android notification access and OEM battery policies can affect collection reliability.
+- Background work remains subject to Android and manufacturer scheduling limits.
+- GitHub sync requires network access and a configured private repository.
+- Some applications may expose only part of their underlying content through notifications.
+- Personal Recorder does not currently include built-in LLM analysis or an in-app AI assistant.
+- There is no in-app language switcher; the Android system locale selects resources.
+
+## Roadmap
+
+- Improve archive inspection and conflict review workflows.
+- Add more detailed diagnostics for OEM background restrictions.
+- Make exported archives easier to feed into LLM, RAG, and personal-agent workflows.
+- Continue expanding locale coverage and accessibility validation.

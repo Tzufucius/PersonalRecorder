@@ -8,6 +8,7 @@ import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
@@ -16,6 +17,20 @@ import org.junit.Test
 import java.util.Base64
 
 class GitHubArchiveClientTest {
+    @Test
+    fun rawDownloadPreservesLargePayloadByteForByte() = runBlocking {
+        listOf(100_000, 1_500_000, 5_000_000).forEach { size ->
+            val payload = ByteArray(size) { (it % 126).toByte() }
+            val fake = FakeHttp(listOf(ResponseSpec(200, payload.toString(Charsets.US_ASCII))))
+            val result = client(fake).downloadContent(
+                GitHubRepository("alice", "archive"),
+                "archive/2026/08/2026-08-23/00-12.jsonl",
+            )
+
+            assertArrayEquals("payload size $size", payload, result)
+            assertEquals("application/vnd.github.raw+json", fake.requests.single().header("Accept"))
+        }
+    }
     @Test
     fun authenticatedUserUsesBearerTokenWithoutExposingItInErrors() = runBlocking {
         val fake = FakeHttp(listOf(ResponseSpec(200, "{\"login\":\"alice\"}")))
@@ -92,6 +107,24 @@ class GitHubArchiveClientTest {
             okio.Buffer().also { target -> source.writeTo(target) }.readUtf8()
         }
         assertTrue(body.contains("\"sha\":\"old-sha\""))
+    }
+
+    @Test
+    fun directoryEntriesAreDiscoveredWithoutTreatingDirectoryAsFile() = runBlocking {
+        val fake = FakeHttp(
+            listOf(
+                ResponseSpec(
+                    200,
+                    """[{"path":"archive/2026/08","type":"dir","sha":"tree"},{"path":"archive/2026/08/manifest.json","type":"file","sha":"blob","size":12}]""",
+                )
+            )
+        )
+
+        val entries = client(fake).listDirectory(GitHubRepository("alice", "archive"), "archive")
+
+        assertEquals(2, entries.size)
+        assertEquals("dir", entries.first().type)
+        assertEquals(12L, entries.last().size)
     }
 
     private fun client(fake: FakeHttp) = GitHubArchiveClient(

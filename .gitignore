@@ -1,5 +1,8 @@
 *.iml
 .gradle
+# Local IDE and code intelligence metadata
+/.codegraph/
+/.cursor/
 /.idea/
 /local.properties
 /.idea/caches

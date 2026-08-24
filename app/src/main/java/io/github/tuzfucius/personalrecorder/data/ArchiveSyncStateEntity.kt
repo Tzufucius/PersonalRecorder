@@ -21,8 +21,11 @@ data class ArchiveSyncStateEntity(
 ) {
     object Status {
         const val PENDING = "PENDING"
+        const val PENDING_UPLOAD = "PENDING_UPLOAD"
+        const val PENDING_DOWNLOAD = "PENDING_DOWNLOAD"
         const val SYNCING = "SYNCING"
         const val SYNCED = "SYNCED"
+        const val CONFLICT = "CONFLICT"
         const val FAILED = "FAILED"
     }
 }

@@ -21,8 +21,29 @@ interface EventDao {
         excludedPackageName: String
     ): Flow<List<StatisticsEventRow>>
 
+    @Query(
+        "SELECT * FROM events " +
+            "WHERE timestamp >= :startMillis AND timestamp < :endMillis " +
+            "AND packageName != :excludedPackageName " +
+            "AND (:packageName IS NULL OR packageName = :packageName) " +
+            "ORDER BY timestamp DESC LIMIT :limit"
+    )
+    fun getStatisticsEventDetails(
+        startMillis: Long,
+        endMillis: Long,
+        excludedPackageName: String,
+        packageName: String?,
+        limit: Int = 201,
+    ): Flow<List<EventEntity>>
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertEvent(event: EventEntity)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertEventsIgnore(events: List<EventEntity>): List<Long>
+
+    @Query("SELECT * FROM events WHERE id = :id LIMIT 1")
+    suspend fun getEventById(id: String): EventEntity?
 
     @Query("SELECT * FROM events ORDER BY timestamp DESC LIMIT :limit")
     fun getRecentEvents(limit: Int = 30): Flow<List<EventEntity>>
@@ -67,6 +88,16 @@ interface EventDao {
     )
     suspend fun getPendingArchiveSegmentsForSync(backend: String, includeFailed: Boolean): List<ArchiveSegmentEntity>
 
+    @Query(
+        "SELECT DISTINCT s.date FROM archive_segments s " +
+            "LEFT JOIN archive_sync_states state ON state.segmentId = s.segmentId AND state.backend = :backend " +
+            "LEFT JOIN archive_conflicts unresolved ON unresolved.segmentId = s.segmentId AND unresolved.resolved = 0 " +
+            "WHERE s.closed = 1 AND (state.segmentId IS NULL OR " +
+            "state.status IN ('PENDING', 'PENDING_UPLOAD', 'PENDING_DOWNLOAD', 'SYNCING', 'CONFLICT', 'FAILED') " +
+            "OR unresolved.conflictId IS NOT NULL)"
+    )
+    suspend fun getReconcileScopeDates(backend: String): List<String>
+
     @Query("SELECT * FROM archive_segments WHERE date = :date ORDER BY startMillis ASC")
     suspend fun getArchiveSegmentsForDate(date: String): List<ArchiveSegmentEntity>
 
@@ -84,6 +115,36 @@ interface EventDao {
 
     @Upsert
     suspend fun upsertArchiveSyncState(state: ArchiveSyncStateEntity)
+
+    @Upsert
+    suspend fun upsertArchiveConflict(conflict: ArchiveConflictEntity)
+
+    @Query("SELECT COUNT(*) FROM archive_conflicts WHERE resolved = 0")
+    fun getUnresolvedConflictCount(): Flow<Int>
+
+    @Query(
+        "SELECT COUNT(*) FROM archive_sync_states WHERE backend = :backend " +
+            "AND status IN ('PENDING', 'PENDING_UPLOAD')"
+    )
+    suspend fun countPendingUploads(backend: String): Int
+
+    @Query(
+        "SELECT COUNT(*) FROM archive_sync_states WHERE backend = :backend " +
+            "AND status = 'PENDING_DOWNLOAD'"
+    )
+    suspend fun countPendingDownloads(backend: String): Int
+
+    @Query("SELECT COUNT(*) FROM events WHERE timestamp >= :startMillis AND timestamp < :endMillis")
+    suspend fun countEventsBetween(startMillis: Long, endMillis: Long): Int
+
+    @Query("SELECT * FROM archive_conflicts WHERE resolved = 0 ORDER BY createdAt DESC")
+    fun getUnresolvedConflicts(): Flow<List<ArchiveConflictEntity>>
+
+    @Query("UPDATE archive_conflicts SET resolved = 1 WHERE conflictId = :conflictId")
+    suspend fun markConflictResolved(conflictId: String)
+
+    @Query("UPDATE archive_conflicts SET resolved = 1 WHERE segmentId = :segmentId AND resolved = 0")
+    suspend fun resolveConflictsForSegment(segmentId: String)
 
     @Query(
         "SELECT * FROM archive_sync_states WHERE segmentId = :segmentId AND backend = :backend LIMIT 1"

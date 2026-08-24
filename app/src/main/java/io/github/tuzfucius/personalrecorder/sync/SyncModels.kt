@@ -1,5 +1,7 @@
 package io.github.tuzfucius.personalrecorder.sync
 
+import java.time.LocalDate
+
 /** 云端后端的稳定标识。Room 仍以字符串保存历史 backend 值。 */
 enum class CloudBackendType {
     GITHUB
@@ -15,10 +17,103 @@ enum class SyncFrequency(val repeatIntervalMillis: Long) {
 /** 单个归档文件在某个云端后端中的状态。 */
 enum class ArchiveSyncStatus {
     PENDING,
+    PENDING_UPLOAD,
+    PENDING_DOWNLOAD,
     SYNCING,
     SYNCED,
+    CONFLICT,
     FAILED
 }
+
+enum class ArchivePairState {
+    LOCAL_ONLY,
+    REMOTE_ONLY,
+    BOTH_IDENTICAL,
+    BOTH_DIFFERENT,
+}
+
+enum class ReconcileMode {
+    INCREMENTAL,
+    FULL_RESTORE,
+}
+
+/** The exact date set both local and remote inventory scans are allowed to touch. */
+data class ReconcileScope(
+    val dates: Set<LocalDate>? = null,
+    val full: Boolean = dates == null,
+) {
+    init {
+        require(full == (dates == null)) { "FULL scope must not contain dates" }
+    }
+
+    fun includes(date: LocalDate): Boolean = full || date in dates.orEmpty()
+
+    companion object {
+        fun full(): ReconcileScope = ReconcileScope(full = true)
+
+        fun dates(dates: Set<LocalDate>): ReconcileScope = ReconcileScope(
+            dates = dates.toSet(),
+            full = false,
+        )
+    }
+}
+
+enum class ArchiveVerificationStatus {
+    VERIFIED,
+    LEGACY_UNVERIFIED,
+}
+
+data class ReconcileProgress(
+    val phase: String,
+    val discovered: Int = 0,
+    val processed: Int = 0,
+    val total: Int = 0,
+    val downloaded: Int = 0,
+    val uploaded: Int = 0,
+    val skipped: Int = 0,
+    val conflicts: Int = 0,
+    val currentPath: String? = null,
+)
+
+class InvalidArchiveException(message: String, cause: Throwable? = null) : IllegalArgumentException(message, cause)
+
+enum class RestoreState {
+    IDLE,
+    DISCOVERING,
+    DOWNLOADING,
+    VERIFYING,
+    IMPORTING,
+    COMPLETED,
+    FAILED,
+}
+
+data class ArchiveDescriptor(
+    val segmentId: String,
+    val relativePath: String,
+    val sha256: String,
+    val date: String,
+    val slot: String,
+    val size: Long,
+    val isManifest: Boolean = false,
+    val remoteSha: String? = null,
+)
+
+data class ArchivePair(
+    val local: ArchiveDescriptor?,
+    val remote: ArchiveDescriptor?,
+) {
+    val state: ArchivePairState = when {
+        local == null && remote != null -> ArchivePairState.REMOTE_ONLY
+        local != null && remote == null -> ArchivePairState.LOCAL_ONLY
+        local != null && remote != null && local.sha256.equals(remote.sha256, ignoreCase = true) ->
+            ArchivePairState.BOTH_IDENTICAL
+        else -> ArchivePairState.BOTH_DIFFERENT
+    }
+}
+
+data class LocalArchiveInventory(val descriptors: List<ArchiveDescriptor>)
+
+data class RemoteArchiveInventory(val descriptors: List<ArchiveDescriptor>)
 
 /**
  * 与 archive 模块解耦的不可变上传载荷。

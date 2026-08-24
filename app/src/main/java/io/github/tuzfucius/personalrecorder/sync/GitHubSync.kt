@@ -29,12 +29,42 @@ data class GitHubContent(
     val content: ByteArray? = null,
 )
 
+data class GitHubContentMetadata(
+    val path: String,
+    val sha: String,
+    val size: Long,
+)
+
+data class GitHubDirectoryEntry(
+    val path: String,
+    val type: String,
+    val sha: String? = null,
+    val size: Long = 0L,
+)
+
 /** GitHub API 的最小业务边界，连接和归档上传共用同一客户端。 */
 interface GitHubArchiveApi {
     suspend fun authenticatedLogin(): String
     suspend fun findRepository(repository: GitHubRepository): GitHubRepositoryDetails?
     suspend fun createPrivateRepository(name: String): GitHubRepositoryDetails
     suspend fun getContent(repository: GitHubRepository, path: String): GitHubContent?
+
+    suspend fun getContentMetadata(
+        repository: GitHubRepository,
+        path: String,
+    ): GitHubContentMetadata? = getContent(repository, path)?.let {
+        GitHubContentMetadata(it.path, it.sha, it.content?.size?.toLong() ?: 0L)
+    }
+
+    suspend fun listDirectory(
+        repository: GitHubRepository,
+        path: String,
+    ): List<GitHubDirectoryEntry> = emptyList()
+
+    suspend fun downloadContent(
+        repository: GitHubRepository,
+        path: String,
+    ): ByteArray? = getContent(repository, path)?.content
     suspend fun putContent(
         repository: GitHubRepository,
         path: String,
@@ -148,8 +178,8 @@ class GitHubConnectionException(message: String, cause: Throwable? = null) : Exc
 
 /** Contents API 上传后端；每个文件独立幂等，成功后由 ArchiveSyncRunner 写入 Room 状态。 */
 class GitHubCloudSyncBackend(
-    private val repositoryProvider: suspend () -> GitHubRepository?,
-    private val api: GitHubArchiveApi,
+    internal val repositoryProvider: suspend () -> GitHubRepository?,
+    internal val api: GitHubArchiveApi,
 ) : CloudSyncBackend {
     constructor(repository: GitHubRepository, api: GitHubArchiveApi) : this({ repository }, api)
 
@@ -172,8 +202,9 @@ class GitHubCloudSyncBackend(
 
     private suspend fun syncOne(repository: GitHubRepository, archive: CloudArchive): BackendSyncResult {
         return try {
-            val remote = api.getContent(repository, archive.relativePath)
-            if (remote != null && remote.content?.contentEquals(archive.content) == true) {
+            val remote = api.getContentMetadata(repository, archive.relativePath)
+            val remoteBytes = remote?.let { api.downloadContent(repository, archive.relativePath) }
+            if (remote != null && remoteBytes?.contentEquals(archive.content) == true) {
                 BackendSyncResult.Success(remoteReference = remote.sha, wasAlreadyPresent = true)
             } else {
                 val uploaded = api.putContent(

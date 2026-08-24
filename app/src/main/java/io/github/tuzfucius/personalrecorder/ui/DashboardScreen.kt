@@ -42,6 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -50,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
@@ -58,11 +60,20 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.tuzfucius.personalrecorder.data.AppDatabase
 import io.github.tuzfucius.personalrecorder.data.PersonalEvent
+import io.github.tuzfucius.personalrecorder.R
+import io.github.tuzfucius.personalrecorder.background.BackgroundRuntimeState
+import io.github.tuzfucius.personalrecorder.background.BackgroundRuntimeStateStore
+import io.github.tuzfucius.personalrecorder.collector.NotificationFilter
+import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettings
+import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsState
+import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsStore
 import io.github.tuzfucius.personalrecorder.settings.FilterMode
 import io.github.tuzfucius.personalrecorder.settings.FilterSettings
 import io.github.tuzfucius.personalrecorder.settings.FilterSettingsState
 import io.github.tuzfucius.personalrecorder.settings.FilterSettingsStore
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
@@ -71,8 +82,11 @@ private enum class AppPage { RECORDS, STATISTICS, SETTINGS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PersonalRecorderApp() {
-    var page by rememberSaveable { mutableStateOf(AppPage.STATISTICS) }
+fun PersonalRecorderApp(openSettings: Boolean = false) {
+    val context = LocalContext.current
+    var page by rememberSaveable(openSettings) {
+        mutableStateOf(if (openSettings) AppPage.SETTINGS else AppPage.STATISTICS)
+    }
     var showFilterSettings by rememberSaveable { mutableStateOf(false) }
 
     if (showFilterSettings) {
@@ -86,16 +100,16 @@ fun PersonalRecorderApp() {
                 title = {
                     Text(
                         when (page) {
-                            AppPage.RECORDS -> "记录"
-                            AppPage.STATISTICS -> "统计"
-                            AppPage.SETTINGS -> "设置"
+                            AppPage.RECORDS -> context.getString(R.string.nav_records)
+                            AppPage.STATISTICS -> context.getString(R.string.nav_statistics)
+                            AppPage.SETTINGS -> context.getString(R.string.nav_settings)
                         }
                     )
                 },
                 actions = {
                     if (page == AppPage.RECORDS) {
                         IconButton(onClick = { showFilterSettings = true }) {
-                            Icon(Icons.Default.FilterList, contentDescription = "筛选应用")
+                            Icon(Icons.Default.FilterList, contentDescription = context.getString(R.string.filter_apps))
                         }
                     }
                 }
@@ -107,19 +121,19 @@ fun PersonalRecorderApp() {
                     selected = page == AppPage.RECORDS,
                     onClick = { page = AppPage.RECORDS },
                     icon = { Icon(Icons.Default.List, contentDescription = null) },
-                    label = { Text("记录") }
+                    label = { Text(context.getString(R.string.nav_records)) }
                 )
                 NavigationBarItem(
                     selected = page == AppPage.STATISTICS,
                     onClick = { page = AppPage.STATISTICS },
                     icon = { Icon(Icons.Default.Insights, contentDescription = null) },
-                    label = { Text("统计") }
+                    label = { Text(context.getString(R.string.nav_statistics)) }
                 )
                 NavigationBarItem(
                     selected = page == AppPage.SETTINGS,
                     onClick = { page = AppPage.SETTINGS },
                     icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                    label = { Text("设置") }
+                    label = { Text(context.getString(R.string.nav_settings)) }
                 )
             }
         }
@@ -141,6 +155,11 @@ fun DashboardScreen() {
     val lifecycleOwner = LocalLifecycleOwner.current
     val dao = remember { AppDatabase.getInstance(context).eventDao() }
     val filterStore = remember { FilterSettingsStore(context) }
+    val runtimeState by remember { BackgroundRuntimeStateStore(context).state }
+        .collectAsStateWithLifecycle(initialValue = BackgroundRuntimeState())
+    val cloudState by remember { CloudSyncSettingsStore(context).state }
+        .collectAsStateWithLifecycle(initialValue = CloudSyncSettingsState.Ready(CloudSyncSettings()))
+    val cloudSettings = (cloudState as? CloudSyncSettingsState.Ready)?.settings ?: CloudSyncSettings()
     var hasNotificationAccess by remember {
         mutableStateOf(NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName))
     }
@@ -176,6 +195,7 @@ fun DashboardScreen() {
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        item { RuntimeStatusCard(runtimeState, cloudSettings.githubConnected) }
         item {
             PermissionCard(
                 enabled = hasNotificationAccess,
@@ -183,18 +203,18 @@ fun DashboardScreen() {
             )
         }
         if (filterState is FilterSettingsState.Error) {
-            item { Text("应用筛选配置读取失败，暂不显示记录。", color = MaterialTheme.colorScheme.error) }
+            item { Text(context.getString(R.string.filter_config_error_records), color = MaterialTheme.colorScheme.error) }
         }
         item {
             Column {
-                Text("今日采集", style = MaterialTheme.typography.titleMedium)
+                Text(context.getString(R.string.today_collection), style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(4.dp))
-                Text("$visibleTodayCount 条", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
+                Text(context.resources.getQuantityString(R.plurals.notifications_count, visibleTodayCount, visibleTodayCount), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
             }
         }
-        item { Text("最近事件", style = MaterialTheme.typography.titleMedium) }
+        item { Text(context.getString(R.string.recent_events), style = MaterialTheme.typography.titleMedium) }
         if (visibleRecent.isEmpty()) {
-            item { Text("暂无通知事件", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            item { Text(context.getString(R.string.no_notification_events), color = MaterialTheme.colorScheme.onSurfaceVariant) }
         } else {
             items(visibleRecent, key = { it.id }) { eventEntity ->
                 EventRow(eventEntity.toPersonalEvent())
@@ -206,18 +226,19 @@ fun DashboardScreen() {
 
 @Composable
 private fun PermissionCard(enabled: Boolean, onOpenSettings: () -> Unit) {
+    val context = LocalContext.current
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("通知访问权限", style = MaterialTheme.typography.titleMedium)
+            Text(context.getString(R.string.notification_access), style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("●", color = if (enabled) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error)
                 Spacer(modifier = Modifier.size(8.dp))
-                Text(if (enabled) "已授权" else "未授权")
+                Text(context.getString(if (enabled) R.string.permission_granted else R.string.permission_not_granted))
             }
             if (!enabled) {
                 Spacer(modifier = Modifier.height(12.dp))
-                Button(onClick = onOpenSettings) { Text("授权通知访问") }
+                Button(onClick = onOpenSettings) { Text(context.getString(R.string.grant_notification_access)) }
             }
         }
     }
@@ -235,7 +256,7 @@ private fun EventRow(event: PersonalEvent) {
         )
         event.title?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
         Text(
-            text = event.content?.takeIf { it.isNotBlank() } ?: "（无正文）",
+            text = event.content?.takeIf { it.isNotBlank() } ?: context.getString(R.string.no_content),
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 2,
             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -245,22 +266,66 @@ private fun EventRow(event: PersonalEvent) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FilterSettingsScreen(onBack: () -> Unit) {
+fun FilterSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val store = remember { FilterSettingsStore(context) }
+    val sourceDao = remember { AppDatabase.getInstance(context).notificationSourceDao() }
     val scope = rememberCoroutineScope()
     val state by store.state.collectAsStateWithLifecycle(initialValue = FilterSettingsState.Ready(FilterSettings()))
     val settings = (state as? FilterSettingsState.Ready)?.settings
     var search by rememberSaveable { mutableStateOf("") }
-    val apps = remember(context) { installedApps(context) }
-    val visibleApps = apps.filter { app ->
-        search.isBlank() || app.label.contains(search, ignoreCase = true) || app.packageName.contains(search, ignoreCase = true)
+    val observedSources by remember(sourceDao) { sourceDao.observeNotificationSources() }
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val launcherApps by produceState(initialValue = emptyList<FilterLauncherApp>(), context) {
+        value = withContext(Dispatchers.IO) { queryLauncherApps(context) }
     }
+    val apps = remember(observedSources, launcherApps, settings?.selectedPackages) {
+        buildFilterAppCatalog(
+            observedSources = observedSources,
+            launcherApps = launcherApps,
+            selectedPackages = settings?.selectedPackages.orEmpty(),
+            ownPackageName = context.packageName,
+        )
+    }
+
+    if (settings == null) {
+        Text(context.getString(R.string.filter_config_error_records), color = MaterialTheme.colorScheme.error)
+        return
+    }
+
+    FilterSettingsContent(
+        settings = settings,
+        apps = apps,
+        observedSourceCount = observedSources.count { it.packageName != context.packageName },
+        search = search,
+        onSearchChange = { search = it },
+        onBack = onBack,
+        onModeChange = { mode -> scope.launch { store.setMode(mode) } },
+        onSelectedPackagesChange = { packages -> scope.launch { store.setSelectedPackages(packages) } },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FilterSettingsContent(
+    settings: FilterSettings,
+    apps: List<FilterAppItem>,
+    observedSourceCount: Int,
+    search: String,
+    onSearchChange: (String) -> Unit,
+    onBack: () -> Unit,
+    onModeChange: (FilterMode) -> Unit,
+    onSelectedPackagesChange: (Set<String>) -> Unit,
+) {
+    val context = LocalContext.current
+    val visibleApps = filterAppItems(apps, search)
+    val observedApps = visibleApps.filter { it.observed }
+    val otherApps = visibleApps.filterNot { it.observed }
 
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text("应用筛选") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "返回") } }
+            title = { Text(context.getString(R.string.filter_apps)) },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = context.getString(R.string.back)) } }
         )
     }) { padding ->
         LazyColumn(
@@ -269,86 +334,140 @@ private fun FilterSettingsScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                Text("模式", style = MaterialTheme.typography.titleMedium)
+                Text(context.getString(R.string.mode), style = MaterialTheme.typography.titleMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterMode.entries.forEach { mode ->
                         FilterChip(
-                            selected = settings?.mode == mode,
-                            onClick = { scope.launch { store.setMode(mode) } },
-                            label = { Text(modeLabel(mode)) }
+                            selected = settings.mode == mode,
+                            onClick = { onModeChange(mode) },
+                            label = { Text(modeLabel(context, mode)) }
                         )
                     }
                 }
-                Text("自身应用始终不会采集。白名单为空时不采集第三方通知。", style = MaterialTheme.typography.bodySmall)
+                Text(context.getString(R.string.filter_note), style = MaterialTheme.typography.bodySmall)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(context.getString(R.string.observed_sources, observedSourceCount))
+                Text(context.getString(R.string.selectable_apps, apps.size))
+                Text(
+                    when (settings.mode) {
+                        FilterMode.ALL -> context.getString(R.string.all_third_party_apps)
+                        FilterMode.WHITELIST -> context.getString(R.string.whitelist_selected, settings.selectedPackages.size)
+                        FilterMode.BLACKLIST -> context.getString(R.string.blacklist_excluded, settings.selectedPackages.size)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    context.getString(R.string.filter_discovery_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             item {
                 TextField(
                     value = search,
-                    onValueChange = { search = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("搜索应用") },
+                    onValueChange = onSearchChange,
+                    modifier = Modifier.fillMaxWidth().testTag("filter-search"),
+                    label = { Text(context.getString(R.string.search_apps)) },
                     singleLine = true
                 )
             }
             item {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = { scope.launch { store.setSelectedPackages(apps.map { it.packageName }.toSet()) } }) { Text("全选") }
-                    TextButton(onClick = { scope.launch { store.setSelectedPackages(emptySet()) } }) { Text("清空") }
+                    TextButton(
+                        onClick = {
+                            onSelectedPackagesChange(
+                                settings.selectedPackages + visibleApps.map { it.packageName },
+                            )
+                        },
+                    ) { Text(context.getString(R.string.select_all_results)) }
+                    TextButton(onClick = { onSelectedPackagesChange(emptySet()) }) { Text(context.getString(R.string.clear)) }
                 }
             }
-            if (settings != null) {
-                items(visibleApps, key = { it.packageName }) { app ->
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(app.label)
-                            Text(app.packageName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Switch(
-                            checked = app.packageName in settings.selectedPackages,
-                            onCheckedChange = { checked ->
-                                scope.launch {
-                                    val next = settings.selectedPackages.toMutableSet().apply {
-                                        if (checked) add(app.packageName) else remove(app.packageName)
-                                    }
-                                    store.setSelectedPackages(next)
-                                }
-                            }
-                        )
-                    }
-                    HorizontalDivider()
+            if (observedApps.isNotEmpty()) {
+                item { Text(context.getString(R.string.observed_notifications), style = MaterialTheme.typography.titleMedium) }
+                items(observedApps, key = { it.packageName }) { app ->
+                    FilterAppRow(app, settings.selectedPackages, onSelectedPackagesChange)
+                }
+            }
+            if (otherApps.isNotEmpty()) {
+                item { Text(context.getString(R.string.other_apps), style = MaterialTheme.typography.titleMedium) }
+                items(otherApps, key = { it.packageName }) { app ->
+                    FilterAppRow(app, settings.selectedPackages, onSelectedPackagesChange)
                 }
             }
         }
     }
 }
 
-private data class InstalledApp(val packageName: String, val label: String)
+@Composable
+private fun FilterAppRow(
+    app: FilterAppItem,
+    selectedPackages: Set<String>,
+    onSelectedPackagesChange: (Set<String>) -> Unit,
+) {
+    val context = LocalContext.current
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(app.label)
+            Text(app.packageName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                when {
+                    app.observed -> context.resources.getQuantityString(R.plurals.notifications_count, app.observedNotificationCount.toInt(), app.observedNotificationCount)
+                    else -> context.getString(R.string.not_observed)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            app.lastSeenAt?.let { timestamp ->
+                Text(
+                    context.getString(R.string.recent_time, DateUtils.formatDateTime(context, timestamp, DateUtils.FORMAT_SHOW_TIME)),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (app.hasLauncher == false) {
+                Text(context.getString(R.string.no_launcher_entry), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Switch(
+            checked = app.selected,
+            onCheckedChange = { checked ->
+                val next = selectedPackages.toMutableSet().apply {
+                    if (checked) add(app.packageName) else remove(app.packageName)
+                }
+                onSelectedPackagesChange(next)
+            },
+            modifier = Modifier.testTag("filter-switch-${app.packageName}"),
+        )
+    }
+    HorizontalDivider()
+}
 
-private fun installedApps(context: Context): List<InstalledApp> = runCatching {
+/** This only discovers launcher-visible apps and is not the authoritative notification-source list. */
+private fun queryLauncherApps(context: Context): List<FilterLauncherApp> = runCatching {
     val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
     context.packageManager.queryIntentActivities(intent, 0)
         .mapNotNull { info ->
             val appInfo = info.activityInfo?.applicationInfo ?: return@mapNotNull null
-            InstalledApp(appInfo.packageName, appInfo.loadLabel(context.packageManager).toString())
+            FilterLauncherApp(
+                packageName = appInfo.packageName,
+                label = runCatching { appInfo.loadLabel(context.packageManager).toString() }.getOrNull(),
+            )
         }
         .distinctBy { it.packageName }
         .filterNot { it.packageName == context.packageName }
-        .sortedWith(compareBy<InstalledApp> { it.label.lowercase(Locale.ROOT) }.thenBy { it.packageName })
+        .sortedWith(compareBy<FilterLauncherApp> { it.label.orEmpty().lowercase(Locale.ROOT) }.thenBy { it.packageName })
 }.getOrDefault(emptyList())
 
 private fun visibleFor(packageName: String, ownPackageName: String, settings: FilterSettings): Boolean {
-    if (packageName == ownPackageName) return false
-    return when (settings.mode) {
-        FilterMode.ALL -> true
-        FilterMode.WHITELIST -> packageName in settings.selectedPackages
-        FilterMode.BLACKLIST -> packageName !in settings.selectedPackages
-    }
+    return NotificationFilter.shouldCollectPackage(packageName, ownPackageName, settings)
 }
 
-private fun modeLabel(mode: FilterMode): String = when (mode) {
-    FilterMode.ALL -> "全部应用"
-    FilterMode.WHITELIST -> "仅白名单"
-    FilterMode.BLACKLIST -> "排除黑名单"
+private fun modeLabel(context: Context, mode: FilterMode): String = when (mode) {
+    FilterMode.ALL -> context.getString(R.string.all_apps)
+    FilterMode.WHITELIST -> context.getString(R.string.whitelist_only)
+    FilterMode.BLACKLIST -> context.getString(R.string.blacklist_exclude)
 }
 
 private fun appLabel(context: Context, packageName: String): String = runCatching {
