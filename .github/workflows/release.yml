@@ -43,7 +43,8 @@ jobs:
 
           version_name="${tag#v}"
           IFS='.' read -r major minor patch <<< "$version_name"
-          version_code=$((10#$major * 10000 + 10#$minor * 100 + 10#$patch))
+          stable_version_code=$((10#$major * 10000 + 10#$minor * 100 + 10#$patch))
+          version_code=$((stable_version_code * 1000))
           if (( version_code < 1 || version_code > 2147483647 )); then
             echo "Invalid release versionCode."
             exit 1
