@@ -2,6 +2,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+Personal Recorder is a local-first Android notification recorder. It collects notification events on the device, keeps the live dataset in Room, and can write long-term JSONL archives. A private GitHub repository is an optional remote archive and restore source; the Room database is never uploaded.
+
 > Turn Android notifications into a private, searchable, AI-ready personal activity log.
 
 Your phone already receives a continuous stream of information about your work and daily life: messages, email alerts, calendar reminders, GitHub activity, deliveries, payments, travel updates, and system notices. Most of it is read once and then disappears into individual apps.
