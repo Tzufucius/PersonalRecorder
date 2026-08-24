@@ -7,6 +7,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -35,40 +37,101 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
+import com.patrykandpatrick.vico.compose.cartesian.rememberVicoScrollState
+import com.patrykandpatrick.vico.compose.cartesian.rememberVicoZoomState
 import com.patrykandpatrick.vico.compose.cartesian.axis.rememberBottom
 import com.patrykandpatrick.vico.compose.cartesian.axis.rememberStart
 import com.patrykandpatrick.vico.compose.cartesian.layer.rememberColumnCartesianLayer
+import com.patrykandpatrick.vico.compose.cartesian.layer.stacked
 import com.patrykandpatrick.vico.compose.cartesian.layer.rememberLineCartesianLayer
+import com.patrykandpatrick.vico.compose.common.component.rememberLineComponent
+import com.patrykandpatrick.vico.compose.common.fill
 import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
 import com.patrykandpatrick.vico.core.cartesian.axis.HorizontalAxis
 import com.patrykandpatrick.vico.core.cartesian.axis.VerticalAxis
+import com.patrykandpatrick.vico.core.cartesian.data.CartesianValueFormatter
 import com.patrykandpatrick.vico.core.cartesian.data.CartesianChartModelProducer
 import com.patrykandpatrick.vico.core.cartesian.data.columnSeries
 import com.patrykandpatrick.vico.core.cartesian.data.lineSeries
+import com.patrykandpatrick.vico.core.cartesian.layer.ColumnCartesianLayer
+import com.patrykandpatrick.vico.core.cartesian.Zoom
+import com.patrykandpatrick.vico.core.common.Defaults
 import io.github.tuzfucius.personalrecorder.statistics.AppCount
 import io.github.tuzfucius.personalrecorder.statistics.DailyCount
+import io.github.tuzfucius.personalrecorder.statistics.HourlyBreakdown
 import io.github.tuzfucius.personalrecorder.statistics.HourlyCount
 import kotlin.math.atan2
 import kotlin.math.hypot
+import kotlin.math.roundToInt
 
+private val appPalette = listOf(
+    Color(0xFF1565C0), Color(0xFF2E7D32), Color(0xFFEF6C00), Color(0xFF6A1B9A),
+    Color(0xFF00838F), Color(0xFFC62828), Color(0xFF5D4037), Color(0xFFAD1457),
+)
+
+internal fun appColorIndex(packageName: String): Int =
+    Math.floorMod(packageName.hashCode(), appPalette.size)
+
+private fun appColor(packageName: String): Color = appPalette[appColorIndex(packageName)]
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HourlyChart(
     values: List<HourlyCount>,
+    breakdowns: List<HourlyBreakdown>,
+    apps: List<AppCount>,
     selectedHour: Int?,
     onHourClick: (Int) -> Unit,
+    labelFor: (String) -> String,
 ) {
     if (values.isEmpty()) {
         Text("暂无小时数据", color = MaterialTheme.colorScheme.onSurfaceVariant)
         return
     }
+    val packageNames = remember(apps) { apps.map { it.packageName } }
+    val chartSeries = remember(values, breakdowns, packageNames) {
+        val seriesValues = packageNames.map { packageName ->
+            values.map { value ->
+                breakdowns.firstOrNull { it.hour == value.hour }
+                    ?.appCounts
+                    ?.firstOrNull { it.packageName == packageName }
+                    ?.count
+                    ?: 0
+            }
+        }
+        seriesValues.ifEmpty { listOf(List(values.size) { 0 }) }
+    }
     val producer = remember { CartesianChartModelProducer() }
-    LaunchedEffect(values) {
-        producer.runTransaction { columnSeries { series(values.map { it.count }) } }
+    LaunchedEffect(values, breakdowns, packageNames) {
+        producer.runTransaction {
+            columnSeries {
+                chartSeries.forEach { series(values.map { it.hour }, it) }
+            }
+        }
+    }
+    val lineComponents = (if (packageNames.isEmpty()) listOf(Color.Transparent) else packageNames.map(::appColor))
+        .map { color -> rememberLineComponent(fill(color), Defaults.COLUMN_WIDTH.dp) }
+    val columnLayer = rememberColumnCartesianLayer(
+        columnProvider = ColumnCartesianLayer.ColumnProvider.series(lineComponents),
+        mergeMode = { ColumnCartesianLayer.MergeMode.stacked() },
+    )
+    val itemPlacer = remember {
+        HorizontalAxis.ItemPlacer.aligned(spacing = { 2 })
     }
     val chart = rememberCartesianChart(
-        rememberColumnCartesianLayer(),
+        columnLayer,
         startAxis = VerticalAxis.rememberStart(),
-        bottomAxis = HorizontalAxis.rememberBottom(),
+        bottomAxis = HorizontalAxis.rememberBottom(
+            itemPlacer = itemPlacer,
+            valueFormatter = CartesianValueFormatter { _, value, _ -> value.roundToInt().toString() },
+        ),
+    )
+    val scrollState = rememberVicoScrollState(scrollEnabled = false)
+    val zoomState = rememberVicoZoomState(
+        zoomEnabled = false,
+        initialZoom = Zoom.Content,
+        minZoom = Zoom.Content,
+        maxZoom = Zoom.Content,
     )
     val selectionColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
     val axisInsetPx = with(LocalDensity.current) { 48.dp.toPx() }
@@ -102,7 +165,32 @@ fun HourlyChart(
                 role = Role.Button
             },
     ) {
-        CartesianChartHost(chart = chart, modelProducer = producer, modifier = Modifier.fillMaxSize())
+        CartesianChartHost(
+            chart = chart,
+            modelProducer = producer,
+            modifier = Modifier.fillMaxSize(),
+            scrollState = scrollState,
+            zoomState = zoomState,
+        )
+    }
+    if (packageNames.isNotEmpty()) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            packageNames.forEach { packageName ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Spacer(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .background(appColor(packageName), CircleShape),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(labelFor(packageName), style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
     }
 }
 
@@ -199,11 +287,10 @@ fun AppDonutChart(
             if (other > 0) add(AppCount(OTHER_KEY, other))
         }
     }
-    val colors = listOf(
-        Color(0xFF1565C0), Color(0xFF2E7D32), Color(0xFFEF6C00),
-        Color(0xFF6A1B9A), Color(0xFF00838F), Color(0xFFC62828),
-        MaterialTheme.colorScheme.outline,
-    )
+    val outlineColor = MaterialTheme.colorScheme.outline
+    val colorFor = { packageName: String ->
+        if (packageName == OTHER_KEY) outlineColor else appColor(packageName)
+    }
     val total = display.sumOf { it.count }.coerceAtLeast(1).toFloat()
     val ringWidthPx = with(LocalDensity.current) { 28.dp.toPx() }
     Row(
@@ -232,7 +319,7 @@ fun AppDonutChart(
                     val sweep = item.count / total * 360f
                     val selected = item.packageName == selectedPackage
                     drawArc(
-                        color = colors[index % colors.size].copy(alpha = if (selected) 1f else 0.82f),
+                        color = colorFor(item.packageName).copy(alpha = if (selected) 1f else 0.82f),
                         startAngle = start,
                         sweepAngle = sweep,
                         useCenter = false,
@@ -262,7 +349,7 @@ fun AppDonutChart(
                         },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Spacer(modifier = Modifier.size(10.dp).background(colors[index % colors.size], CircleShape))
+                    Spacer(modifier = Modifier.size(10.dp).background(colorFor(item.packageName), CircleShape))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(text = "$label ${item.count}", style = MaterialTheme.typography.labelMedium)
                 }

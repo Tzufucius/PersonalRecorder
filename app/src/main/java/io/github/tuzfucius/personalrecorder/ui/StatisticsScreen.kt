@@ -73,7 +73,14 @@ fun StatisticsScreen(
         item { KpiOverview(state) }
         item {
             Section("小时分布") {
-                HourlyChart(state.hourlyCounts, state.selection.hour, viewModel::selectHour)
+                HourlyChart(
+                    values = state.hourlyCounts,
+                    breakdowns = state.hourlyBreakdowns,
+                    apps = state.appCounts,
+                    selectedHour = state.selection.hour,
+                    onHourClick = viewModel::selectHour,
+                    labelFor = { appLabel(context, it) },
+                )
                 state.selection.hour?.let { hour ->
                     Spacer(modifier = Modifier.height(8.dp))
                     Text("${hour.toString().padStart(2, '0')}:00  ${state.selectedHourCount} 条")
@@ -107,9 +114,11 @@ fun StatisticsScreen(
                 if (state.topApps.isEmpty()) Text("暂无排行数据", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        item {
-            Section("每日趋势") {
-                DailyTrendChart(state.dailyCounts, state.selection.date, viewModel::selectDate)
+        if (state.range != StatisticsRange.TODAY) {
+            item {
+                Section("每日趋势") {
+                    DailyTrendChart(state.dailyCounts, state.selection.date, viewModel::selectDate)
+                }
             }
         }
         if (state.selection.app != null || state.selection.hour != null || state.selection.date != null) {
