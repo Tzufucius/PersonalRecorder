@@ -7,8 +7,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -36,6 +34,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
 import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
 import com.patrykandpatrick.vico.compose.cartesian.rememberVicoScrollState
 import com.patrykandpatrick.vico.compose.cartesian.rememberVicoZoomState
@@ -74,7 +73,6 @@ internal fun appColorIndex(packageName: String): Int =
 
 private fun appColor(packageName: String): Color = appPalette[appColorIndex(packageName)]
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HourlyChart(
     values: List<HourlyCount>,
@@ -174,20 +172,35 @@ fun HourlyChart(
         )
     }
     if (packageNames.isNotEmpty()) {
-        FlowRow(
+        Column(
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            packageNames.forEach { packageName ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Spacer(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .background(appColor(packageName), CircleShape),
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(labelFor(packageName), style = MaterialTheme.typography.labelMedium)
+            packageNames.chunked(2).forEach { rowPackages ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    rowPackages.forEach { packageName ->
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Spacer(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .background(appColor(packageName), CircleShape),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = labelFor(packageName),
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                    }
                 }
             }
         }
