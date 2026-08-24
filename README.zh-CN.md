@@ -6,17 +6,6 @@ Personal Recorder 是一款本地优先的 Android 通知记录应用。应用�
 
 > 把 Android 通知自动沉淀为私有、可检索、可供 AI 分析的个人信息档案。
 
-## 下载
-
-可从 [GitHub Releases](https://github.com/Tuzfucius/PersonalRecorder/releases) 下载最新的已签名 APK。
-
-GitHub Releases 包含两类已签名 APK：
-
-- `vMAJOR.MINOR.PATCH` 是维护者确认的稳定版本。
-- `weekly-YYYY.MM.DD` 是基于最新 `main` 代码自动构建的预发布版本。
-
-两类版本都会提供 SHA-256 校验文件。Actions Artifact 是开发测试用 Debug 版本；GitHub Releases 才是面向普通用户的可安装签名版本。
-
 你的手机每天都在持续接收关于工作和生活的信息：聊天消息、邮件提醒、日程会议、GitHub 动态、快递、支付、出行以及系统通知。大多数信息看过一次之后，就重新散落回不同的应用里。
 
 Personal Recorder 在 Android 本地持续采集这条通知信息流，把它转化为可以长期保存、回看、归档并再次利用的结构化历史数据。
@@ -139,6 +128,19 @@ Room 是设备上的实时数据源。归档器按半日导出 JSONL 文件，�
 
 ## 构建与运行
 
+### 下载
+
+可从 [GitHub Releases](https://github.com/Tuzfucius/PersonalRecorder/releases) 下载最新的已签名 APK。
+
+GitHub Releases 包含两类已签名 APK：
+
+- `vMAJOR.MINOR.PATCH` 是维护者确认的稳定版本。
+- `weekly-YYYY.MM.DD` 是基于最新 `main` 代码自动构建的预发布版本。
+
+两类版本都会提供 SHA-256 校验文件。Actions Artifact 是开发测试用 Debug 版本；GitHub Releases 才是面向普通用户的可安装签名版本。
+
+### 本地构建
+
 ```powershell
 .\gradlew.bat test
 .\gradlew.bat assembleDebug
@@ -146,6 +148,9 @@ Room 是设备上的实时数据源。归档器按半日导出 JSONL 文件，�
 ```
 
 将 `app/build/outputs/apk/debug/app-debug.apk` 安装到 Android 设备，并授予通知访问权限。只有需要远端归档同步和恢复时才需要配置 GitHub。
+
+<details>
+<summary>开发者与维护者发布说明</summary>
 
 ### Weekly 自动构建
 
@@ -185,6 +190,8 @@ Weekly versionCode = 稳定版 versionCode + 稳定 Tag 之后的提交数
 ```
 
 首个稳定 Tag 之前，Weekly versionCode 使用仓库提交总数，必须保持在 `1..999` 范围内。预留区间耗尽前需要先发布新的稳定 Tag。
+
+</details>
 
 ## 限制
 

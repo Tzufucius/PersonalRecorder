@@ -6,17 +6,6 @@ Personal Recorder is a local-first Android notification recorder. It collects no
 
 > Turn Android notifications into a private, searchable, AI-ready personal activity log.
 
-## Download
-
-Download the latest signed APK from [GitHub Releases](https://github.com/Tuzfucius/PersonalRecorder/releases).
-
-GitHub Releases contain two kinds of signed APKs:
-
-- `vMAJOR.MINOR.PATCH` releases are stable versions confirmed by a maintainer.
-- `weekly-YYYY.MM.DD` releases are automatic Pre-releases from the latest `main` changes.
-
-Both include a SHA-256 checksum. Actions artifacts are development/test Debug builds; GitHub Releases are the installable signed releases for end users.
-
 Your phone already receives a continuous stream of information about your work and daily life: messages, email alerts, calendar reminders, GitHub activity, deliveries, payments, travel updates, and system notices. Most of it is read once and then disappears into individual apps.
 
 Personal Recorder captures that notification stream locally on Android and turns it into structured history you can keep, review, archive, and reuse later.
@@ -139,6 +128,19 @@ Restore keeps local data separate until conflicts are resolved. Synchronization 
 
 ## Build and run
 
+### Download
+
+Download the latest signed APK from [GitHub Releases](https://github.com/Tuzfucius/PersonalRecorder/releases).
+
+GitHub Releases contain two kinds of signed APKs:
+
+- `vMAJOR.MINOR.PATCH` releases are stable versions confirmed by a maintainer.
+- `weekly-YYYY.MM.DD` releases are automatic Pre-releases from the latest `main` changes.
+
+Both include a SHA-256 checksum. Actions artifacts are development/test Debug builds; GitHub Releases are the installable signed releases for end users.
+
+### Local build
+
 ```powershell
 .\gradlew.bat test
 .\gradlew.bat assembleDebug
@@ -146,6 +148,9 @@ Restore keeps local data separate until conflicts are resolved. Synchronization 
 ```
 
 Install `app/build/outputs/apk/debug/app-debug.apk` on an Android device and grant notification access. GitHub configuration is only required if you want remote archive synchronization and restore.
+
+<details>
+<summary>Developer and maintainer release notes</summary>
 
 ### Weekly builds
 
@@ -185,6 +190,8 @@ Weekly versionCode = stable versionCode + commits since the stable Tag
 ```
 
 Before the first stable Tag, Weekly `versionCode` uses the repository commit count and must stay within `1..999`. Publish a new stable Tag before the reserved Weekly range is exhausted.
+
+</details>
 
 ## Limitations
 
