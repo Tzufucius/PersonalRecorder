@@ -28,16 +28,22 @@ class StatisticsCalculator(
             .toList()
 
         val hourly = IntArray(24)
+        val hourlyAppCounts = Array(24) { mutableMapOf<String, Int>() }
         val daily = dates.associateWith { 0 }.toMutableMap()
         val appCounts = mutableMapOf<String, Int>()
         validRows.forEach { row ->
             val local = Instant.ofEpochMilli(row.timestamp).atZone(zone)
             hourly[local.hour]++
+            hourlyAppCounts[local.hour][row.packageName] =
+                hourlyAppCounts[local.hour].getOrDefault(row.packageName, 0) + 1
             daily[local.toLocalDate()] = daily.getValue(local.toLocalDate()) + 1
             appCounts[row.packageName] = appCounts.getOrDefault(row.packageName, 0) + 1
         }
 
         val hourlyCounts = hourly.mapIndexed(::HourlyCount)
+        val hourlyBreakdowns = hourlyAppCounts.mapIndexed { hour, counts ->
+            HourlyBreakdown(hour = hour, appCounts = counts.toAppCounts())
+        }
         val apps = appCounts.toAppCounts()
         val dailyCounts = dates.map { DailyCount(it, daily.getValue(it)) }
         val maxHourlyCount = hourlyCounts.maxOfOrNull { it.count } ?: 0
@@ -55,6 +61,7 @@ class StatisticsCalculator(
             activeAppCount = apps.size,
             peakHour = hourlyCounts.firstOrNull { it.count == maxHourlyCount && it.count > 0 }?.hour,
             hourlyCounts = hourlyCounts,
+            hourlyBreakdowns = hourlyBreakdowns,
             appCounts = apps,
             topApps = apps.take(TOP_APPS),
             dailyCounts = dailyCounts,

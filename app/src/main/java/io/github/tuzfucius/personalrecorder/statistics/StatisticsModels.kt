@@ -16,6 +16,12 @@ enum class StatisticsRange(val dayCount: Long, val label: String) {
 
 data class HourlyCount(val hour: Int, val count: Int)
 
+/** Per-package breakdown for one hour. Package names remain the stable business identifiers. */
+data class HourlyBreakdown(
+    val hour: Int,
+    val appCounts: List<AppCount> = emptyList(),
+)
+
 data class AppCount(val packageName: String, val count: Int)
 
 data class DailyCount(val date: LocalDate, val count: Int)
@@ -86,6 +92,7 @@ data class StatisticsUiState(
     val activeAppCount: Int = 0,
     val peakHour: Int? = null,
     val hourlyCounts: List<HourlyCount> = emptyList(),
+    val hourlyBreakdowns: List<HourlyBreakdown> = emptyList(),
     val appCounts: List<AppCount> = emptyList(),
     val topApps: List<AppCount> = emptyList(),
     val dailyCounts: List<DailyCount> = emptyList(),

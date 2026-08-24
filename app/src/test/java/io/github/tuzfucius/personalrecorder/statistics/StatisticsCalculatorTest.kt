@@ -1,6 +1,7 @@
 package io.github.tuzfucius.personalrecorder.statistics
 
 import io.github.tuzfucius.personalrecorder.data.StatisticsEventRow
+import io.github.tuzfucius.personalrecorder.settings.FilterMode
 import io.github.tuzfucius.personalrecorder.settings.FilterSettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -28,8 +29,32 @@ class StatisticsCalculatorTest {
         val state = calculator.calculate(rows, StatisticsRange.TODAY, "self.app", FilterSettings())
 
         assertEquals(24, state.hourlyCounts.size)
+        assertEquals(24, state.hourlyBreakdowns.size)
         assertEquals(2, state.hourlyCounts[9].count)
+        assertEquals(
+            listOf(AppCount("a", 1), AppCount("b", 1)),
+            state.hourlyBreakdowns[9].appCounts,
+        )
         assertEquals(9, state.peakHour)
+    }
+
+    @Test
+    fun hourlyBreakdownPreservesTotalsAndUsesPackageIds() {
+        val rows = listOf(
+            row("wechat", "2026-08-22T01:00:00Z"),
+            row("wechat", "2026-08-22T01:15:00Z"),
+            row("chatgpt", "2026-08-22T01:30:00Z"),
+            row("chatgpt", "2026-08-21T23:00:00Z"),
+        )
+
+        val state = calculator.calculate(rows, StatisticsRange.LAST_7_DAYS, "self.app", FilterSettings())
+
+        state.hourlyCounts.forEach { total ->
+            val breakdownTotal = state.hourlyBreakdowns[total.hour].appCounts.sumOf { it.count }
+            assertEquals(total.count, breakdownTotal)
+        }
+        assertEquals(listOf(AppCount("wechat", 2), AppCount("chatgpt", 1)), state.hourlyBreakdowns[9].appCounts)
+        assertEquals(listOf(AppCount("chatgpt", 1)), state.hourlyBreakdowns[7].appCounts)
     }
 
     @Test
@@ -55,6 +80,29 @@ class StatisticsCalculatorTest {
         assertEquals(0, state.activeAppCount)
         assertNull(state.peakHour)
         assertTrue(state.hourlyCounts.all { it.count == 0 })
+        assertEquals(24, state.hourlyBreakdowns.size)
+        assertTrue(state.hourlyBreakdowns.all { it.appCounts.isEmpty() })
+    }
+
+    @Test
+    fun filtersSelfAndUserExcludedPackagesFromBreakdowns() {
+        val rows = listOf(
+            row("self.app", "2026-08-22T01:00:00Z"),
+            row("blocked", "2026-08-22T01:15:00Z"),
+            row("allowed", "2026-08-22T01:30:00Z"),
+            row("ongoing", "2026-08-22T01:45:00Z", isOngoing = true),
+            row("summary", "2026-08-22T02:00:00Z", isGroupSummary = true),
+        )
+
+        val state = calculator.calculate(
+            rows,
+            StatisticsRange.TODAY,
+            "self.app",
+            FilterSettings(mode = FilterMode.BLACKLIST, selectedPackages = setOf("blocked")),
+        )
+
+        assertEquals(1, state.totalCount)
+        assertEquals(listOf(AppCount("allowed", 1)), state.hourlyBreakdowns[9].appCounts)
     }
 
     @Test
