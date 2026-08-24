@@ -15,6 +15,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import io.github.tuzfucius.personalrecorder.collector.NotificationCollectorService
+import io.github.tuzfucius.personalrecorder.R
 import io.github.tuzfucius.personalrecorder.data.AppDatabase
 import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsState
 import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsStore
@@ -72,7 +73,7 @@ class BackgroundHealthWorker(
             StatusNotificationManager(context).show(runtime.state.first(), todayCount)
         }
         if (!githubConnected) {
-            runtime.markSyncError("GitHub 尚未连接")
+            runtime.markSyncError(context.getString(R.string.sync_error_not_configured))
         }
         Result.success()
     }.getOrElse { error ->

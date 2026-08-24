@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import io.github.tuzfucius.personalrecorder.data.AppDatabase
 import io.github.tuzfucius.personalrecorder.settings.FilterSettingsState
 import io.github.tuzfucius.personalrecorder.settings.FilterSettingsStore
+import io.github.tuzfucius.personalrecorder.ui.UiMessage
+import io.github.tuzfucius.personalrecorder.R
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -52,7 +54,7 @@ class StatisticsViewModel(application: Application) : AndroidViewModel(applicati
                 range = range,
                 selection = currentSelection,
                 selectedHour = currentSelection.hour,
-                errorMessage = "筛选配置读取失败，无法生成统计"
+                errorMessage = UiMessage.Resource(R.string.statistics_filter_error)
             )
         }
         val settings = (settingsState as FilterSettingsState.Ready).settings

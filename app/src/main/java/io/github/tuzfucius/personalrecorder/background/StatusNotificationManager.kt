@@ -22,10 +22,10 @@ class StatusNotificationManager(context: Context) {
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
-                "后台运行状态",
+                appContext.getString(R.string.notification_channel_name),
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
-                description = "Personal Recorder 监听与归档同步状态"
+                description = appContext.getString(R.string.notification_channel_description)
                 setShowBadge(false)
             }
         )
@@ -39,18 +39,18 @@ class StatusNotificationManager(context: Context) {
         if (!canPostNotifications()) return
         ensureChannel()
         val listener = when (state.listenerStatus) {
-            ListenerRuntimeStatus.CONNECTED -> "● 通知监听正常"
-            ListenerRuntimeStatus.DISCONNECTED -> "⚠ 通知监听已断开"
-            ListenerRuntimeStatus.UNKNOWN -> "? 通知监听状态未知"
+            ListenerRuntimeStatus.CONNECTED -> appContext.getString(R.string.listener_normal)
+            ListenerRuntimeStatus.DISCONNECTED -> appContext.getString(R.string.listener_disconnected)
+            ListenerRuntimeStatus.UNKNOWN -> appContext.getString(R.string.listener_unknown)
         }
-        val sync = state.lastSyncSuccessAt?.let { formatTime(it) } ?: "暂无"
-        val content = buildString {
-            append(listener)
-            append("\n今日记录：$todayCount")
-            append("\n待上传：${state.pendingUploads}  待下载：${state.pendingDownloads}")
-            append("\n最近同步：$sync")
-            state.lastSyncError?.let { append("\n错误：${it.take(80)}") }
-        }
+        val sync = state.lastSyncSuccessAt?.let { formatTime(it) } ?: appContext.getString(R.string.no_value)
+        val content = buildList {
+            add(listener)
+            add(appContext.getString(R.string.notification_today_count, todayCount))
+            add(appContext.getString(R.string.notification_pending, state.pendingUploads, state.pendingDownloads))
+            add(appContext.getString(R.string.notification_last_sync, sync))
+            state.lastSyncError?.let { add(appContext.getString(R.string.notification_error, it.take(80))) }
+        }.joinToString("\n")
         val openIntent = Intent(appContext, MainActivity::class.java)
             .putExtra(MainActivity.EXTRA_OPEN_DIAGNOSTICS, true)
         val syncIntent = Intent(appContext, MainActivity::class.java)
@@ -69,15 +69,15 @@ class StatusNotificationManager(context: Context) {
         )
         val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("Personal Recorder")
+            .setContentTitle(appContext.getString(R.string.app_name))
             .setContentText(listener)
             .setStyle(NotificationCompat.BigTextStyle().bigText(content))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setContentIntent(openPending)
-            .addAction(0, "立即同步", syncPending)
-            .addAction(0, "打开诊断", openPending)
+            .addAction(0, appContext.getString(R.string.sync_now), syncPending)
+            .addAction(0, appContext.getString(R.string.open_diagnostics), openPending)
             .build()
         NotificationManagerCompat.from(appContext).notify(NOTIFICATION_ID, notification)
     }

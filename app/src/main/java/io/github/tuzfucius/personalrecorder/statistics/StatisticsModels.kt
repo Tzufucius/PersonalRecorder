@@ -4,14 +4,15 @@ import io.github.tuzfucius.personalrecorder.collector.NotificationFilter
 import io.github.tuzfucius.personalrecorder.data.EventEntity
 import io.github.tuzfucius.personalrecorder.data.StatisticsEventRow
 import io.github.tuzfucius.personalrecorder.settings.FilterSettings
+import io.github.tuzfucius.personalrecorder.ui.UiMessage
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.Instant
 
-enum class StatisticsRange(val dayCount: Long, val label: String) {
-    TODAY(1, "今日"),
-    LAST_7_DAYS(7, "近 7 日"),
-    LAST_30_DAYS(30, "近 30 日")
+enum class StatisticsRange(val dayCount: Long) {
+    TODAY(1),
+    LAST_7_DAYS(7),
+    LAST_30_DAYS(30)
 }
 
 data class HourlyCount(val hour: Int, val count: Int)
@@ -105,5 +106,5 @@ data class StatisticsUiState(
     val expandedEventId: String? = null,
     val isOtherAppsExpanded: Boolean = false,
     val isLoading: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: UiMessage? = null
 )

@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -59,6 +60,7 @@ import io.github.tuzfucius.personalrecorder.statistics.AppCount
 import io.github.tuzfucius.personalrecorder.statistics.DailyCount
 import io.github.tuzfucius.personalrecorder.statistics.HourlyBreakdown
 import io.github.tuzfucius.personalrecorder.statistics.HourlyCount
+import io.github.tuzfucius.personalrecorder.R
 import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.roundToInt
@@ -101,8 +103,9 @@ fun HourlyChart(
     onHourClick: (Int) -> Unit,
     labelFor: (String) -> String,
 ) {
+    val context = LocalContext.current
     if (values.isEmpty()) {
-        Text("暂无小时数据", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(context.getString(R.string.no_hour_data), color = MaterialTheme.colorScheme.onSurfaceVariant)
         return
     }
     val packageNames = remember(apps) { apps.map { it.packageName } }
@@ -179,7 +182,9 @@ fun HourlyChart(
                 }
             }
             .semantics {
-                contentDescription = values.joinToString("、") { "${it.hour.toString().padStart(2, '0')}:00 ${it.count} 条" }
+                contentDescription = values.joinToString(context.getString(R.string.list_separator)) {
+                    context.getString(R.string.hour_selected, context.getString(R.string.hour_label, it.hour), it.count)
+                }
                 role = Role.Button
             },
     ) {
@@ -233,8 +238,9 @@ fun DailyTrendChart(
     selectedDate: java.time.LocalDate? = null,
     onDateClick: (java.time.LocalDate) -> Unit = {},
 ) {
+    val context = LocalContext.current
     if (values.isEmpty()) {
-        Text("暂无每日数据", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(context.getString(R.string.no_daily_data), color = MaterialTheme.colorScheme.onSurfaceVariant)
         return
     }
     val producer = remember { CartesianChartModelProducer() }
@@ -274,7 +280,9 @@ fun DailyTrendChart(
                 }
             }
             .semantics {
-                contentDescription = values.joinToString("、") { "${it.date} ${it.count} 条" }
+                contentDescription = values.joinToString(context.getString(R.string.list_separator)) {
+                    "${it.date} ${it.count}"
+                }
                 role = Role.Button
             },
     ) {
@@ -306,8 +314,9 @@ fun AppDonutChart(
     onAppClick: (String) -> Unit = {},
     onOtherClick: () -> Unit = {},
 ) {
+    val context = LocalContext.current
     if (values.isEmpty()) {
-        Text("暂无应用来源数据", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(context.getString(R.string.no_app_source_data), color = MaterialTheme.colorScheme.onSurfaceVariant)
         return
     }
     val top = values.take(6)
@@ -337,7 +346,12 @@ fun AppDonutChart(
         Box(
             modifier = Modifier
                 .size(156.dp)
-                .semantics { contentDescription = "应用来源环图，共 ${display.sumOf { it.count }} 条" }
+                .semantics {
+                    contentDescription = context.getString(
+                        R.string.app_source_chart,
+                        display.sumOf { it.count },
+                    )
+                }
                 .pointerInput(display) {
                     detectTapGestures { offset ->
                         donutHitTest(offset.x, offset.y, size.width.toFloat(), size.height.toFloat(), display.map { it.count }, ringWidthPx)
@@ -364,20 +378,20 @@ fun AppDonutChart(
                     start += sweep
                 }
             }
-            Text("${display.sumOf { it.count }}", style = MaterialTheme.typography.titleMedium)
+            Text(display.sumOf { it.count }.toString(), style = MaterialTheme.typography.titleMedium)
         }
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             display.forEachIndexed { index, item ->
-                val label = if (item.packageName == OTHER_KEY) "其他" else labelFor(item.packageName)
+                val label = if (item.packageName == OTHER_KEY) context.getString(R.string.other_label) else labelFor(item.packageName)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 8.dp)
                         .semantics {
-                            contentDescription = "$label ${item.count} 条"
+                            contentDescription = context.getString(R.string.app_count_label, label, item.count)
                             role = Role.Button
                         }
                         .clickable {
@@ -387,7 +401,7 @@ fun AppDonutChart(
                 ) {
                     Spacer(modifier = Modifier.size(10.dp).background(colorFor(item.packageName), CircleShape))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "$label ${item.count}", style = MaterialTheme.typography.labelMedium)
+                    Text(text = context.getString(R.string.app_count_label, label, item.count), style = MaterialTheme.typography.labelMedium)
                 }
             }
         }

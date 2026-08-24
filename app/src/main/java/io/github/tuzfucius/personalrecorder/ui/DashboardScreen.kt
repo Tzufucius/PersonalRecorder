@@ -60,6 +60,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.tuzfucius.personalrecorder.data.AppDatabase
 import io.github.tuzfucius.personalrecorder.data.PersonalEvent
+import io.github.tuzfucius.personalrecorder.R
 import io.github.tuzfucius.personalrecorder.background.BackgroundRuntimeState
 import io.github.tuzfucius.personalrecorder.background.BackgroundRuntimeStateStore
 import io.github.tuzfucius.personalrecorder.collector.NotificationFilter
@@ -82,6 +83,7 @@ private enum class AppPage { RECORDS, STATISTICS, SETTINGS }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PersonalRecorderApp(openSettings: Boolean = false) {
+    val context = LocalContext.current
     var page by rememberSaveable(openSettings) {
         mutableStateOf(if (openSettings) AppPage.SETTINGS else AppPage.STATISTICS)
     }
@@ -98,16 +100,16 @@ fun PersonalRecorderApp(openSettings: Boolean = false) {
                 title = {
                     Text(
                         when (page) {
-                            AppPage.RECORDS -> "记录"
-                            AppPage.STATISTICS -> "统计"
-                            AppPage.SETTINGS -> "设置"
+                            AppPage.RECORDS -> context.getString(R.string.nav_records)
+                            AppPage.STATISTICS -> context.getString(R.string.nav_statistics)
+                            AppPage.SETTINGS -> context.getString(R.string.nav_settings)
                         }
                     )
                 },
                 actions = {
                     if (page == AppPage.RECORDS) {
                         IconButton(onClick = { showFilterSettings = true }) {
-                            Icon(Icons.Default.FilterList, contentDescription = "筛选应用")
+                            Icon(Icons.Default.FilterList, contentDescription = context.getString(R.string.filter_apps))
                         }
                     }
                 }
@@ -119,19 +121,19 @@ fun PersonalRecorderApp(openSettings: Boolean = false) {
                     selected = page == AppPage.RECORDS,
                     onClick = { page = AppPage.RECORDS },
                     icon = { Icon(Icons.Default.List, contentDescription = null) },
-                    label = { Text("记录") }
+                    label = { Text(context.getString(R.string.nav_records)) }
                 )
                 NavigationBarItem(
                     selected = page == AppPage.STATISTICS,
                     onClick = { page = AppPage.STATISTICS },
                     icon = { Icon(Icons.Default.Insights, contentDescription = null) },
-                    label = { Text("统计") }
+                    label = { Text(context.getString(R.string.nav_statistics)) }
                 )
                 NavigationBarItem(
                     selected = page == AppPage.SETTINGS,
                     onClick = { page = AppPage.SETTINGS },
                     icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                    label = { Text("设置") }
+                    label = { Text(context.getString(R.string.nav_settings)) }
                 )
             }
         }
@@ -201,18 +203,18 @@ fun DashboardScreen() {
             )
         }
         if (filterState is FilterSettingsState.Error) {
-            item { Text("应用筛选配置读取失败，暂不显示记录。", color = MaterialTheme.colorScheme.error) }
+            item { Text(context.getString(R.string.filter_config_error_records), color = MaterialTheme.colorScheme.error) }
         }
         item {
             Column {
-                Text("今日采集", style = MaterialTheme.typography.titleMedium)
+                Text(context.getString(R.string.today_collection), style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(4.dp))
-                Text("$visibleTodayCount 条", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
+                Text(context.resources.getQuantityString(R.plurals.notifications_count, visibleTodayCount, visibleTodayCount), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
             }
         }
-        item { Text("最近事件", style = MaterialTheme.typography.titleMedium) }
+        item { Text(context.getString(R.string.recent_events), style = MaterialTheme.typography.titleMedium) }
         if (visibleRecent.isEmpty()) {
-            item { Text("暂无通知事件", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            item { Text(context.getString(R.string.no_notification_events), color = MaterialTheme.colorScheme.onSurfaceVariant) }
         } else {
             items(visibleRecent, key = { it.id }) { eventEntity ->
                 EventRow(eventEntity.toPersonalEvent())
@@ -224,18 +226,19 @@ fun DashboardScreen() {
 
 @Composable
 private fun PermissionCard(enabled: Boolean, onOpenSettings: () -> Unit) {
+    val context = LocalContext.current
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("通知访问权限", style = MaterialTheme.typography.titleMedium)
+            Text(context.getString(R.string.notification_access), style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("●", color = if (enabled) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error)
                 Spacer(modifier = Modifier.size(8.dp))
-                Text(if (enabled) "已授权" else "未授权")
+                Text(context.getString(if (enabled) R.string.permission_granted else R.string.permission_not_granted))
             }
             if (!enabled) {
                 Spacer(modifier = Modifier.height(12.dp))
-                Button(onClick = onOpenSettings) { Text("授权通知访问") }
+                Button(onClick = onOpenSettings) { Text(context.getString(R.string.grant_notification_access)) }
             }
         }
     }
@@ -253,7 +256,7 @@ private fun EventRow(event: PersonalEvent) {
         )
         event.title?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
         Text(
-            text = event.content?.takeIf { it.isNotBlank() } ?: "（无正文）",
+            text = event.content?.takeIf { it.isNotBlank() } ?: context.getString(R.string.no_content),
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 2,
             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -286,7 +289,7 @@ fun FilterSettingsScreen(onBack: () -> Unit) {
     }
 
     if (settings == null) {
-        Text("应用筛选配置读取失败", color = MaterialTheme.colorScheme.error)
+        Text(context.getString(R.string.filter_config_error_records), color = MaterialTheme.colorScheme.error)
         return
     }
 
@@ -314,14 +317,15 @@ fun FilterSettingsContent(
     onModeChange: (FilterMode) -> Unit,
     onSelectedPackagesChange: (Set<String>) -> Unit,
 ) {
+    val context = LocalContext.current
     val visibleApps = filterAppItems(apps, search)
     val observedApps = visibleApps.filter { it.observed }
     val otherApps = visibleApps.filterNot { it.observed }
 
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text("应用筛选") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "返回") } }
+            title = { Text(context.getString(R.string.filter_apps)) },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = context.getString(R.string.back)) } }
         )
     }) { padding ->
         LazyColumn(
@@ -330,31 +334,31 @@ fun FilterSettingsContent(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                Text("模式", style = MaterialTheme.typography.titleMedium)
+                Text(context.getString(R.string.mode), style = MaterialTheme.typography.titleMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterMode.entries.forEach { mode ->
                         FilterChip(
                             selected = settings.mode == mode,
                             onClick = { onModeChange(mode) },
-                            label = { Text(modeLabel(mode)) }
+                            label = { Text(modeLabel(context, mode)) }
                         )
                     }
                 }
-                Text("自身应用始终不会采集。白名单为空时不采集第三方通知。", style = MaterialTheme.typography.bodySmall)
+                Text(context.getString(R.string.filter_note), style = MaterialTheme.typography.bodySmall)
                 Spacer(modifier = Modifier.height(4.dp))
-                Text("已发现通知来源：$observedSourceCount")
-                Text("当前可选应用：${apps.size}")
+                Text(context.getString(R.string.observed_sources, observedSourceCount))
+                Text(context.getString(R.string.selectable_apps, apps.size))
                 Text(
                     when (settings.mode) {
-                        FilterMode.ALL -> "全部第三方应用"
-                        FilterMode.WHITELIST -> "已允许：${settings.selectedPackages.size}"
-                        FilterMode.BLACKLIST -> "已排除：${settings.selectedPackages.size}"
+                        FilterMode.ALL -> context.getString(R.string.all_third_party_apps)
+                        FilterMode.WHITELIST -> context.getString(R.string.whitelist_selected, settings.selectedPackages.size)
+                        FilterMode.BLACKLIST -> context.getString(R.string.blacklist_excluded, settings.selectedPackages.size)
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    "通知来源发现依赖 NotificationListener。没有发过通知的无桌面应用可能暂时不会出现在列表中。",
+                    context.getString(R.string.filter_discovery_note),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -364,7 +368,7 @@ fun FilterSettingsContent(
                     value = search,
                     onValueChange = onSearchChange,
                     modifier = Modifier.fillMaxWidth().testTag("filter-search"),
-                    label = { Text("搜索应用") },
+                    label = { Text(context.getString(R.string.search_apps)) },
                     singleLine = true
                 )
             }
@@ -376,18 +380,18 @@ fun FilterSettingsContent(
                                 settings.selectedPackages + visibleApps.map { it.packageName },
                             )
                         },
-                    ) { Text("全选当前结果") }
-                    TextButton(onClick = { onSelectedPackagesChange(emptySet()) }) { Text("清空") }
+                    ) { Text(context.getString(R.string.select_all_results)) }
+                    TextButton(onClick = { onSelectedPackagesChange(emptySet()) }) { Text(context.getString(R.string.clear)) }
                 }
             }
             if (observedApps.isNotEmpty()) {
-                item { Text("已产生通知", style = MaterialTheme.typography.titleMedium) }
+                item { Text(context.getString(R.string.observed_notifications), style = MaterialTheme.typography.titleMedium) }
                 items(observedApps, key = { it.packageName }) { app ->
                     FilterAppRow(app, settings.selectedPackages, onSelectedPackagesChange)
                 }
             }
             if (otherApps.isNotEmpty()) {
-                item { Text("其他应用", style = MaterialTheme.typography.titleMedium) }
+                item { Text(context.getString(R.string.other_apps), style = MaterialTheme.typography.titleMedium) }
                 items(otherApps, key = { it.packageName }) { app ->
                     FilterAppRow(app, settings.selectedPackages, onSelectedPackagesChange)
                 }
@@ -402,27 +406,28 @@ private fun FilterAppRow(
     selectedPackages: Set<String>,
     onSelectedPackagesChange: (Set<String>) -> Unit,
 ) {
+    val context = LocalContext.current
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
             Text(app.label)
             Text(app.packageName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
                 when {
-                    app.observed -> "已观察通知 · ${app.observedNotificationCount} 条"
-                    else -> "尚未观察到通知"
+                    app.observed -> context.resources.getQuantityString(R.plurals.notifications_count, app.observedNotificationCount.toInt(), app.observedNotificationCount)
+                    else -> context.getString(R.string.not_observed)
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             app.lastSeenAt?.let { timestamp ->
                 Text(
-                    "最近：${DateUtils.formatDateTime(LocalContext.current, timestamp, DateUtils.FORMAT_SHOW_TIME)}",
+                    context.getString(R.string.recent_time, DateUtils.formatDateTime(context, timestamp, DateUtils.FORMAT_SHOW_TIME)),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (app.hasLauncher == false) {
-                Text("无桌面入口", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(context.getString(R.string.no_launcher_entry), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Switch(
@@ -459,10 +464,10 @@ private fun visibleFor(packageName: String, ownPackageName: String, settings: Fi
     return NotificationFilter.shouldCollectPackage(packageName, ownPackageName, settings)
 }
 
-private fun modeLabel(mode: FilterMode): String = when (mode) {
-    FilterMode.ALL -> "全部应用"
-    FilterMode.WHITELIST -> "仅白名单"
-    FilterMode.BLACKLIST -> "排除黑名单"
+private fun modeLabel(context: Context, mode: FilterMode): String = when (mode) {
+    FilterMode.ALL -> context.getString(R.string.all_apps)
+    FilterMode.WHITELIST -> context.getString(R.string.whitelist_only)
+    FilterMode.BLACKLIST -> context.getString(R.string.blacklist_exclude)
 }
 
 private fun appLabel(context: Context, packageName: String): String = runCatching {

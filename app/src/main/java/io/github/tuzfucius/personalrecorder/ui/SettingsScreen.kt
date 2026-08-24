@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -62,10 +63,12 @@ import io.github.tuzfucius.personalrecorder.data.ArchiveConflictEntity
 import androidx.core.app.NotificationManagerCompat
 import java.text.DateFormat
 import java.util.Date
+import io.github.tuzfucius.personalrecorder.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(settingsViewModel: SettingsViewModel? = null) {
+    val context = LocalContext.current
     val viewModel = settingsViewModel ?: runCatching { composeViewModel<SettingsViewModel>() }.getOrNull()
     if (viewModel == null) {
         SettingsScreenFallback()
@@ -114,16 +117,16 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel? = null) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
             item {
-                Text("云端归档", style = MaterialTheme.typography.headlineSmall)
+                Text(context.getString(R.string.cloud_archive), style = MaterialTheme.typography.headlineSmall)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Room 保存本地实时数据，半日 JSONL 归档通过 GitHub 私有仓库保存。",
+                    context.getString(R.string.room_archive_description),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (settingsState is CloudSyncSettingsState.Error) {
-                item { Text("同步设置读取失败", color = MaterialTheme.colorScheme.error) }
+                item { Text(context.getString(R.string.settings_read_error), color = MaterialTheme.colorScheme.error) }
             }
             item {
                 GitHubCard(
@@ -145,7 +148,7 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel? = null) {
                     )
             }
             item {
-                RestoreProgressCard(restoreState)
+                RestoreProgressCard(restoreState, context)
             }
             item {
                 BackgroundDiagnosticsCard(
@@ -178,21 +181,21 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel? = null) {
             item { FrequencyCard(currentSettings.frequency, viewModel::setFrequency) }
             message?.let { current ->
                 item {
-                    Text(current, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = viewModel::clearMessage) { Text("关闭") }
+                    Text(current.resolve(context), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = viewModel::clearMessage) { Text(context.getString(R.string.close)) }
                 }
             }
     }
     restorePrompt?.let { prompt ->
         AlertDialog(
             onDismissRequest = viewModel::dismissRestorePrompt,
-            title = { Text("发现 GitHub 历史归档") },
-            text = { Text("发现 ${prompt.days} 天、${prompt.archives} 个归档，是否恢复到本机？") },
+            title = { Text(context.getString(R.string.github_history_found)) },
+            text = { Text(context.getString(R.string.restore_prompt, prompt.days, prompt.archives)) },
             confirmButton = {
-                TextButton(onClick = viewModel::restoreFromGithub) { Text("恢复") }
+                TextButton(onClick = viewModel::restoreFromGithub) { Text(context.getString(R.string.restore)) }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::dismissRestorePrompt) { Text("暂不") }
+                TextButton(onClick = viewModel::dismissRestorePrompt) { Text(context.getString(R.string.not_now)) }
             },
         )
     }
@@ -201,14 +204,15 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel? = null) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsScreenFallback() {
+    val context = LocalContext.current
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-            item { Text("云端归档", style = MaterialTheme.typography.headlineSmall) }
+            item { Text(context.getString(R.string.cloud_archive), style = MaterialTheme.typography.headlineSmall) }
             item {
-                Text("GitHub 私有仓库", style = MaterialTheme.typography.titleMedium)
+                Text(context.getString(R.string.github_private_repository), style = MaterialTheme.typography.titleMedium)
                 Switch(
                     checked = false,
                     onCheckedChange = {},
@@ -217,7 +221,7 @@ private fun SettingsScreenFallback() {
                 OutlinedTextField(
                     value = "",
                     onValueChange = {},
-                    label = { Text("Personal Access Token") },
+                    label = { Text(context.getString(R.string.personal_access_token)) },
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth().testTag("github-token-input"),
@@ -225,12 +229,12 @@ private fun SettingsScreenFallback() {
                 OutlinedTextField(
                     value = GitHubRepository.DEFAULT_NAME,
                     onValueChange = {},
-                    label = { Text("仓库名称") },
+                    label = { Text(context.getString(R.string.repository_name)) },
                     modifier = Modifier.fillMaxWidth().testTag("github-repository-input"),
                 )
             }
-            item { Text("每天两次") }
-            item { Button(onClick = {}, modifier = Modifier.fillMaxWidth()) { Text("立即同步") } }
+            item { Text(context.getString(R.string.twice_daily)) }
+            item { Button(onClick = {}, modifier = Modifier.fillMaxWidth()) { Text(context.getString(R.string.sync_now)) } }
     }
 }
 
@@ -252,6 +256,7 @@ private fun GitHubCard(
     onValidate: () -> Unit,
     onRestore: () -> Unit,
 ) {
+    val context = LocalContext.current
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -260,7 +265,7 @@ private fun GitHubCard(
                     contentDescription = null,
                 )
                 Spacer(Modifier.padding(horizontal = 4.dp))
-                Text("GitHub 私有仓库", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                Text(context.getString(R.string.github_private_repository), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                 Switch(
                     checked = settings.githubEnabled,
                     onCheckedChange = onEnabledChange,
@@ -269,37 +274,37 @@ private fun GitHubCard(
             }
             HorizontalDivider()
             Text(
-                if (settings.githubConnected) "状态：已连接" else "状态：未连接",
+                context.getString(if (settings.githubConnected) R.string.status_connected else R.string.status_not_connected),
                 color = if (settings.githubConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
             )
             if (settings.githubConnected) {
-                settings.githubUsername?.let { Text("账号：$it") }
-                Text("仓库：${settings.githubRepository}")
-                Text("待同步归档：$pendingCount")
-                Text("最近同步：${formatSyncTime(lastSync)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onDisconnect) { Text("断开 GitHub") }
-                    Button(onClick = onSync) {
+                settings.githubUsername?.let { Text(context.getString(R.string.account_value, it)) }
+                Text(context.getString(R.string.repository_value, settings.githubRepository))
+                Text(context.getString(R.string.pending_archives, pendingCount))
+                Text(context.getString(R.string.last_sync, formatSyncTime(context, lastSync)), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) { Text(context.getString(R.string.disconnect_github)) }
+                    Button(onClick = onSync, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.Sync, contentDescription = null)
                         Text(
                             when (workState) {
-                                androidx.work.WorkInfo.State.RUNNING -> "同步中"
-                                androidx.work.WorkInfo.State.ENQUEUED -> "等待网络"
-                                else -> "立即同步"
+                                androidx.work.WorkInfo.State.RUNNING -> context.getString(R.string.syncing)
+                                androidx.work.WorkInfo.State.ENQUEUED -> context.getString(R.string.waiting_network)
+                                else -> context.getString(R.string.sync_now)
                             },
                             modifier = Modifier.padding(start = 8.dp),
                         )
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onValidate) { Text("校验云端归档") }
-                    OutlinedButton(onClick = onRestore) { Text("从 GitHub 恢复历史") }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onValidate, modifier = Modifier.fillMaxWidth()) { Text(context.getString(R.string.validate_archive)) }
+                    OutlinedButton(onClick = onRestore, modifier = Modifier.fillMaxWidth()) { Text(context.getString(R.string.restore_history)) }
                 }
             } else {
                 OutlinedTextField(
                     value = token,
                     onValueChange = onTokenChange,
-                    label = { Text("Personal Access Token") },
+                    label = { Text(context.getString(R.string.personal_access_token)) },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -308,7 +313,7 @@ private fun GitHubCard(
                 OutlinedTextField(
                     value = repository,
                     onValueChange = onRepositoryChange,
-                    label = { Text("仓库名称") },
+                    label = { Text(context.getString(R.string.repository_name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().testTag("github-repository-input"),
                 )
@@ -317,7 +322,7 @@ private fun GitHubCard(
                     enabled = token.isNotBlank() && repository.isNotBlank() && !connecting,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(if (connecting) "正在验证 GitHub…" else "连接 GitHub")
+                    Text(context.getString(if (connecting) R.string.verifying_github else R.string.connect_github))
                 }
             }
         }
@@ -326,15 +331,16 @@ private fun GitHubCard(
 
 @Composable
 private fun FrequencyCard(selected: SyncFrequency, onSelected: (SyncFrequency) -> Unit) {
+    val context = LocalContext.current
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("同步频率", style = MaterialTheme.typography.titleMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(context.getString(R.string.sync_frequency), style = MaterialTheme.typography.titleMedium)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SyncFrequency.entries.forEach { frequency ->
                     FilterChip(
                         selected = selected == frequency,
                         onClick = { onSelected(frequency) },
-                        label = { Text(frequencyLabel(frequency)) },
+                        label = { Text(frequencyLabel(context, frequency)) },
                     )
                 }
             }
@@ -342,38 +348,38 @@ private fun FrequencyCard(selected: SyncFrequency, onSelected: (SyncFrequency) -
     }
 }
 
-private fun frequencyLabel(frequency: SyncFrequency): String = when (frequency) {
-    SyncFrequency.TWICE_DAILY -> "每天两次"
-    SyncFrequency.DAILY -> "每天一次"
-    SyncFrequency.WEEKLY -> "每周一次"
+private fun frequencyLabel(context: android.content.Context, frequency: SyncFrequency): String = when (frequency) {
+    SyncFrequency.TWICE_DAILY -> context.getString(R.string.twice_daily)
+    SyncFrequency.DAILY -> context.getString(R.string.daily)
+    SyncFrequency.WEEKLY -> context.getString(R.string.weekly)
 }
 
-private fun formatSyncTime(timestamp: Long?): String = timestamp?.let {
+private fun formatSyncTime(context: android.content.Context, timestamp: Long?): String = timestamp?.let {
     DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(it))
-} ?: "暂无"
+} ?: context.getString(R.string.no_value)
 
 @Composable
-private fun RestoreProgressCard(state: RestoreUiState) {
+private fun RestoreProgressCard(state: RestoreUiState, context: android.content.Context) {
     if (state.state == io.github.tuzfucius.personalrecorder.sync.RestoreState.IDLE) return
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("归档协调", style = MaterialTheme.typography.titleMedium)
+            Text(context.getString(R.string.archive_coordination), style = MaterialTheme.typography.titleMedium)
             Text(
                 when {
-                    state.running && state.state == io.github.tuzfucius.personalrecorder.sync.RestoreState.DISCOVERING -> "正在扫描 GitHub…"
-                    state.running -> "正在恢复归档…"
-                    state.state == io.github.tuzfucius.personalrecorder.sync.RestoreState.COMPLETED -> "协调完成"
-                    else -> "协调失败"
+                    state.running && state.state == io.github.tuzfucius.personalrecorder.sync.RestoreState.DISCOVERING -> context.getString(R.string.scanning_github)
+                    state.running -> context.getString(R.string.restoring_archive)
+                    state.state == io.github.tuzfucius.personalrecorder.sync.RestoreState.COMPLETED -> context.getString(R.string.coordination_complete)
+                    else -> context.getString(R.string.coordination_failed)
                 }
             )
-            if (state.discovered > 0) Text("发现 ${state.discovered} 个远端文件")
+            if (state.discovered > 0) Text(context.resources.getQuantityString(R.plurals.remote_files_count, state.discovered, state.discovered))
             if (state.downloaded > 0 || state.uploaded > 0 || state.skipped > 0) {
-                Text("下载：${state.downloaded}  上传：${state.uploaded}  跳过：${state.skipped}")
+                Text(context.getString(R.string.transfer_counts, state.downloaded, state.uploaded, state.skipped))
             }
             if (state.conflicts > 0) {
-                Text("冲突：${state.conflicts}", color = MaterialTheme.colorScheme.error)
+                Text(context.getString(R.string.conflicts_value, state.conflicts), color = MaterialTheme.colorScheme.error)
             }
-            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            state.error?.let { Text(it.resolve(context), color = MaterialTheme.colorScheme.error) }
         }
     }
 }
@@ -394,62 +400,62 @@ private fun BackgroundDiagnosticsCard(
     val diagnostics = remember(context) { BackgroundDiagnostics.read(context) }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("后台运行", style = MaterialTheme.typography.titleMedium)
+            Text(context.getString(R.string.background_running), style = MaterialTheme.typography.titleMedium)
             val listenerPermission = NotificationManagerCompat.getEnabledListenerPackages(context)
                 .contains(context.packageName)
-            StatusLine("通知访问权限", listenerPermission, if (listenerPermission) "已授权" else "未授权")
+            StatusLine(context.getString(R.string.notification_access), listenerPermission, context.getString(if (listenerPermission) R.string.permission_granted else R.string.permission_not_granted))
             val listenerStatus = when (runtimeState.listenerStatus) {
-                ListenerRuntimeStatus.CONNECTED -> "实时已连接"
-                ListenerRuntimeStatus.DISCONNECTED -> "实时已断开"
-                ListenerRuntimeStatus.UNKNOWN -> "实时状态未知"
+                ListenerRuntimeStatus.CONNECTED -> context.getString(R.string.realtime_connected)
+                ListenerRuntimeStatus.DISCONNECTED -> context.getString(R.string.realtime_disconnected)
+                ListenerRuntimeStatus.UNKNOWN -> context.getString(R.string.realtime_unknown)
             }
-            StatusLine("监听实时状态", runtimeState.listenerStatus == ListenerRuntimeStatus.CONNECTED, listenerStatus)
-            StatusLine("GitHub", githubConnected, if (githubConnected) "已连接" else "未连接")
-            Text("待上传：${runtimeState.pendingUploads}    待下载：${runtimeState.pendingDownloads}")
-            Text("冲突：${runtimeState.conflicts}")
+            StatusLine(context.getString(R.string.realtime_status), runtimeState.listenerStatus == ListenerRuntimeStatus.CONNECTED, listenerStatus)
+            StatusLine("GitHub", githubConnected, context.getString(if (githubConnected) R.string.permission_granted else R.string.permission_not_granted))
+            Text(context.getString(R.string.pending_transfer, runtimeState.pendingUploads, runtimeState.pendingDownloads))
+            Text(context.getString(R.string.conflicts_value, runtimeState.conflicts))
             if (conflicts.isNotEmpty()) {
-                OutlinedButton(onClick = onShowConflicts) { Text("查看冲突详情 (${conflicts.size})") }
+                OutlinedButton(onClick = onShowConflicts, modifier = Modifier.fillMaxWidth()) { Text(context.getString(R.string.view_conflicts, conflicts.size)) }
             }
-            Text("最近采集：${formatSyncTime(runtimeState.lastEventAt)}")
-            Text("最近健康检查：${formatSyncTime(runtimeState.lastHealthCheckAt)}")
+            Text(context.getString(R.string.recent_collection, formatSyncTime(context, runtimeState.lastEventAt)))
+            Text(context.getString(R.string.recent_health_check, formatSyncTime(context, runtimeState.lastHealthCheckAt)))
             Text(
-                "电池优化：${if (diagnostics.batteryOptimizationIgnored) "已忽略" else "仍受限制"}",
+                context.getString(R.string.battery_optimization, context.getString(if (diagnostics.batteryOptimizationIgnored) R.string.battery_ignored else R.string.battery_limited)),
                 color = if (diagnostics.batteryOptimizationIgnored) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
             )
-            Text("设备：${diagnostics.manufacturer} ${diagnostics.model}")
-            Text("状态通知：${if (statusNotificationEnabled) "已开启" else "已关闭"}")
-            Text("最近任务：${if (hideFromRecents) "已隐藏" else "可见"}")
-            Text("最近同步：${formatSyncTime(runtimeState.lastSyncSuccessAt)}")
+            Text(context.getString(R.string.device_value, diagnostics.manufacturer, diagnostics.model))
+            Text(context.getString(R.string.status_notification, context.getString(if (statusNotificationEnabled) R.string.enabled else R.string.disabled)))
+            Text(context.getString(R.string.recent_task, context.getString(if (hideFromRecents) R.string.hidden else R.string.visible)))
+            Text(context.getString(R.string.last_sync, formatSyncTime(context, runtimeState.lastSyncSuccessAt)))
             diagnostics.vendorGuidance?.let {
-                Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                Text(context.getString(it), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             }
-            runtimeState.lastSyncError?.let { Text("最近错误：$it", color = MaterialTheme.colorScheme.error) }
+            runtimeState.lastSyncError?.let { Text(localizedSyncError(context, it), color = MaterialTheme.colorScheme.error) }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("后台状态通知", modifier = Modifier.weight(1f))
+                Text(context.getString(R.string.background_status_notification), modifier = Modifier.weight(1f))
                 Switch(checked = statusNotificationEnabled, onCheckedChange = onStatusNotificationChange)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("从最近任务隐藏", modifier = Modifier.weight(1f))
+                Text(context.getString(R.string.hide_from_recents), modifier = Modifier.weight(1f))
                 Switch(checked = hideFromRecents, onCheckedChange = onHideFromRecentsChange)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = {
                     context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                }) { Text("通知访问设置") }
+                }, modifier = Modifier.fillMaxWidth()) { Text(context.getString(R.string.notification_settings)) }
                 OutlinedButton(onClick = {
                     context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                }) { Text("电池优化设置") }
+                }, modifier = Modifier.fillMaxWidth()) { Text(context.getString(R.string.battery_settings)) }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = {
                     val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                         .setData(Uri.parse("package:${context.packageName}"))
                     context.startActivity(intent)
-                }) { Text("应用后台设置") }
-                Button(onClick = onSync) { Text("立即同步") }
+                }, modifier = Modifier.fillMaxWidth()) { Text(context.getString(R.string.app_background_settings)) }
+                Button(onClick = onSync, modifier = Modifier.fillMaxWidth()) { Text(context.getString(R.string.sync_now)) }
             }
             Text(
-                "Android 与各厂商系统不保证普通应用永久存活，请按系统提示确认后台权限。",
+                context.getString(R.string.background_runtime_note),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -463,20 +469,27 @@ private fun ConflictDetailsCard(
     onClose: () -> Unit,
     onResolve: (String) -> Unit,
 ) {
+    val context = LocalContext.current
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text("未解决的归档冲突", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                TextButton(onClick = onClose) { Text("收起") }
+                Text(context.getString(R.string.unresolved_conflicts), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                TextButton(onClick = onClose) { Text(context.getString(R.string.collapse)) }
             }
             if (conflicts.isEmpty()) {
-                Text("暂无未解决冲突", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(context.getString(R.string.no_unresolved_conflicts), color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 conflicts.forEach { conflict ->
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(conflict.relativePath, style = MaterialTheme.typography.bodyMedium)
                         Text(
-                            "日期：${conflict.relativePath.split('/').getOrNull(3) ?: "未知"}  segment：${conflict.segmentId}  冲突数：${conflict.summary.substringAfter("发现 ").substringBefore(" 个").ifBlank { "未知" }}  创建：${formatSyncTime(conflict.createdAt)}",
+                            context.getString(
+                                R.string.conflict_metadata,
+                                conflict.relativePath.split('/').getOrNull(3) ?: context.getString(R.string.no_value),
+                                conflict.segmentId,
+                                conflict.summary.substringAfter("发现 ").substringBefore(" 个").ifBlank { context.getString(R.string.no_value) },
+                                formatSyncTime(context, conflict.createdAt),
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -486,11 +499,11 @@ private fun ConflictDetailsCard(
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Text(
-                            "本地：${conflict.localFilePath}  远端：${conflict.remoteFilePath}",
+                            context.getString(R.string.local_remote_paths, conflict.localFilePath, conflict.remoteFilePath),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall,
                         )
-                        TextButton(onClick = { onResolve(conflict.conflictId) }) { Text("标记已处理") }
+                        TextButton(onClick = { onResolve(conflict.conflictId) }) { Text(context.getString(R.string.mark_handled)) }
                     }
                     if (conflict != conflicts.last()) HorizontalDivider()
                 }

@@ -23,6 +23,7 @@ import io.github.tuzfucius.personalrecorder.sync.SyncFrequency
 import io.github.tuzfucius.personalrecorder.sync.SyncScheduler
 import io.github.tuzfucius.personalrecorder.sync.ReconcileMode
 import io.github.tuzfucius.personalrecorder.sync.RestoreState
+import io.github.tuzfucius.personalrecorder.R
 import io.github.tuzfucius.personalrecorder.PersonalRecorderApplication
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
@@ -44,8 +45,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val runtimeStateStore = BackgroundRuntimeStateStore(context)
     val backgroundSettingsStore = BackgroundSettingsStore(context)
 
-    private val _message = MutableStateFlow<String?>(null)
-    val message: StateFlow<String?> = _message.asStateFlow()
+    private val _message = MutableStateFlow<UiMessage?>(null)
+    val message: StateFlow<UiMessage?> = _message.asStateFlow()
     private val _connecting = MutableStateFlow(false)
     val connecting: StateFlow<Boolean> = _connecting.asStateFlow()
     private var githubJob: Job? = null
@@ -91,14 +92,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 result.onSuccess { login ->
                     viewModelScope.launch {
                         settingsStore.setGithubEnabled(true)
-                        _message.value = "GitHub 已连接：$login"
+                        _message.value = UiMessage.Resource(R.string.github_connected_message, listOf(login))
                         discoverAfterConnect()
                     }
                 }.onFailure { error ->
-                    _message.value = when (error) {
-                        is GitHubConnectionException -> error.message
-                        else -> "GitHub 连接失败"
-                    }
+                    _message.value = localizeSyncError(error)
                 }
             } catch (error: CancellationException) {
                 throw error
@@ -113,14 +111,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         settingsStore.setGithubUsername(null)
         settingsStore.setGithubConnected(false)
         settingsStore.setGithubEnabled(false)
-        _message.value = "GitHub 已断开，本地归档与同步历史已保留"
+        _message.value = UiMessage.Resource(R.string.github_disconnected_message)
     }
 
     fun enqueueNow() {
         viewModelScope.launch {
             val settings = (settingsStore.state.first() as? CloudSyncSettingsState.Ready)?.settings
             if (settings == null || !settings.githubConnected) {
-                _message.value = "请先连接 GitHub"
+                _message.value = UiMessage.Resource(R.string.connect_first_message)
             } else {
                 scheduler.enqueueNow()
             }
@@ -201,7 +199,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     running = false,
                     state = RestoreState.FAILED,
                     mode = mode,
-                    error = error.message ?: "归档协调失败",
+                    error = localizeSyncError(error),
                 )
             }
         }
@@ -221,7 +219,7 @@ data class RestoreUiState(
     val uploaded: Int = 0,
     val skipped: Int = 0,
     val conflicts: Int = 0,
-    val error: String? = null,
+    val error: UiMessage? = null,
 )
 
 data class RestorePrompt(val days: Int, val archives: Int)
@@ -252,6 +250,28 @@ private fun WorkInfo.toRestoreUiState(): RestoreUiState {
         uploaded = data.getInt(GitHubRestoreWorker.KEY_UPLOADED, 0),
         skipped = data.getInt(GitHubRestoreWorker.KEY_SKIPPED, 0),
         conflicts = data.getInt(GitHubRestoreWorker.KEY_CONFLICTS, 0),
-        error = data.getString(GitHubRestoreWorker.KEY_ERROR),
+        error = data.getString(GitHubRestoreWorker.KEY_ERROR)?.let(UiMessage::Raw),
     )
+}
+
+private fun localizeSyncError(error: Throwable): UiMessage {
+    val message = error.message.orEmpty().lowercase()
+    return when {
+        error is GitHubConnectionException -> UiMessage.Resource(R.string.github_connection_failed)
+        "token" in message || "身份验证" in message || "authentication" in message ->
+            UiMessage.Resource(R.string.sync_error_authentication)
+        "权限" in message || "authorization" in message || "无权" in message ->
+            UiMessage.Resource(R.string.sync_error_authorization)
+        "冲突" in message || "conflict" in message ->
+            UiMessage.Resource(R.string.sync_error_remote_conflict)
+        "归档" in message || "archive" in message ->
+            UiMessage.Resource(R.string.sync_error_invalid_archive)
+        "频繁" in message || "rate" in message ->
+            UiMessage.Resource(R.string.sync_error_rate_limited)
+        "服务" in message || "service" in message ->
+            UiMessage.Resource(R.string.sync_error_service_unavailable)
+        "连接" in message || "network" in message ->
+            UiMessage.Resource(R.string.sync_error_network)
+        else -> UiMessage.Raw(error.message ?: "")
+    }
 }

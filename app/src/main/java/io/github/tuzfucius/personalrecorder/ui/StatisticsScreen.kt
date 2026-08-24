@@ -39,6 +39,10 @@ import io.github.tuzfucius.personalrecorder.statistics.AppCount
 import io.github.tuzfucius.personalrecorder.statistics.StatisticsEventItem
 import io.github.tuzfucius.personalrecorder.statistics.StatisticsRange
 import io.github.tuzfucius.personalrecorder.statistics.StatisticsUiState
+import io.github.tuzfucius.personalrecorder.R
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 
 @Composable
 fun StatisticsScreen(
@@ -57,9 +61,12 @@ fun StatisticsScreen(
                     FilterChip(
                         selected = state.range == range,
                         onClick = { viewModel.selectRange(range) },
-                        label = { Text(range.label) },
+                        label = { Text(rangeLabel(context, range)) },
                         modifier = Modifier.semantics {
-                            contentDescription = "统计范围 ${range.label}"
+                            contentDescription = context.getString(
+                                R.string.statistics_range_cd,
+                                rangeLabel(context, range),
+                            )
                             role = Role.RadioButton
                         },
                     )
@@ -67,12 +74,12 @@ fun StatisticsScreen(
             }
         }
         state.errorMessage?.let { message ->
-            item { Text(message, color = MaterialTheme.colorScheme.error) }
+            item { Text(message.resolve(context), color = MaterialTheme.colorScheme.error) }
         }
         item { SelectionSummary(state, context, viewModel::clearSelection) }
         item { KpiOverview(state) }
         item {
-            Section("小时分布") {
+            Section(context.getString(R.string.section_hourly)) {
                 HourlyChart(
                     values = state.hourlyCounts,
                     breakdowns = state.hourlyBreakdowns,
@@ -83,15 +90,15 @@ fun StatisticsScreen(
                 )
                 state.selection.hour?.let { hour ->
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("${hour.toString().padStart(2, '0')}:00  ${state.selectedHourCount} 条")
+                    Text(context.getString(R.string.hour_selected, hourLabel(context, hour), state.selectedHourCount))
                     state.selectedHourTopApps.takeIf { it.isNotEmpty() }?.let { apps ->
-                        Text(apps.joinToString("、") { appLabel(context, it.packageName) })
+                        Text(apps.joinToString(context.getString(R.string.list_separator)) { appLabel(context, it.packageName) })
                     }
                 }
             }
         }
         item {
-            Section("应用来源") {
+            Section(context.getString(R.string.section_app_source)) {
                 AppDonutChart(
                     values = state.appCounts,
                     labelFor = { appLabel(context, it) },
@@ -103,7 +110,7 @@ fun StatisticsScreen(
             }
         }
         item {
-            Section("应用排行") {
+            Section(context.getString(R.string.section_app_ranking)) {
                 val max = state.topApps.maxOfOrNull { it.count } ?: 1
                 state.topApps.forEachIndexed { index, app ->
                     AppRankRow(index + 1, app, max, app.packageName == state.selection.app) {
@@ -111,12 +118,12 @@ fun StatisticsScreen(
                     }
                     HorizontalDivider()
                 }
-                if (state.topApps.isEmpty()) Text("暂无排行数据", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (state.topApps.isEmpty()) Text(context.getString(R.string.no_rank_data), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         if (state.range != StatisticsRange.TODAY) {
             item {
-                Section("每日趋势") {
+                Section(context.getString(R.string.section_daily_trend)) {
                     DailyTrendChart(state.dailyCounts, state.selection.date, viewModel::selectDate)
                 }
             }
@@ -127,7 +134,7 @@ fun StatisticsScreen(
             }
             if (state.isDetailsExpanded) {
                 if (state.details.isEmpty()) {
-                    item { Text("暂无明细记录", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    item { Text(context.getString(R.string.no_details), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 } else {
                     items(state.details, key = { it.id }) { detail ->
                         StatisticsDetailRow(
@@ -152,7 +159,7 @@ private fun SelectionSummary(
     val selection = state.selection
     if (selection.app == null && selection.hour == null && selection.date == null) {
         Text(
-            "统计口径：排除进行中通知、组摘要和当前筛选之外的应用，原始记录仍保留。",
+            context.getString(R.string.statistics_scope_note),
             style = MaterialTheme.typography.bodySmall,
         )
         return
@@ -162,11 +169,11 @@ private fun SelectionSummary(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
-        Text("筛选：", style = MaterialTheme.typography.labelLarge)
+        Text(context.getString(R.string.statistics_filter_prefix), style = MaterialTheme.typography.labelLarge)
         selection.app?.let { Text(appLabel(context, it), style = MaterialTheme.typography.labelLarge) }
-        selection.date?.let { Text(it.toString(), style = MaterialTheme.typography.labelLarge) }
-        selection.hour?.let { Text("${it.toString().padStart(2, '0')}:00", style = MaterialTheme.typography.labelLarge) }
-        IconButton(onClick = onClear, modifier = Modifier.semantics { contentDescription = "清除统计筛选" }) {
+        selection.date?.let { Text(formatDate(context, it), style = MaterialTheme.typography.labelLarge) }
+        selection.hour?.let { Text(hourLabel(context, it), style = MaterialTheme.typography.labelLarge) }
+        IconButton(onClick = onClear, modifier = Modifier.semantics { contentDescription = context.getString(R.string.clear_statistics_filter) }) {
             Icon(Icons.Default.Close, contentDescription = null)
         }
     }
@@ -174,10 +181,11 @@ private fun SelectionSummary(
 
 @Composable
 private fun KpiOverview(state: StatisticsUiState) {
+    val context = LocalContext.current
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        Kpi("有效事件", state.totalCount.toString(), Modifier.weight(1f))
-        Kpi("活跃应用", state.activeAppCount.toString(), Modifier.weight(1f))
-        Kpi("峰值小时", state.peakHour?.let { "${it}:00" } ?: "--", Modifier.weight(1f))
+        Kpi(context.getString(R.string.valid_events), state.totalCount.toString(), Modifier.weight(1f))
+        Kpi(context.getString(R.string.active_apps), state.activeAppCount.toString(), Modifier.weight(1f))
+        Kpi(context.getString(R.string.peak_hour), state.peakHour?.let { hourLabel(context, it) } ?: "--", Modifier.weight(1f))
     }
 }
 
@@ -212,7 +220,7 @@ private fun AppRankRow(
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .semantics {
-                contentDescription = "$rank ${appLabel(context, app.packageName)} ${app.count} 条"
+                contentDescription = context.getString(R.string.rank_accessibility, rank, appLabel(context, app.packageName), app.count)
                 role = Role.Button
             }
             .padding(vertical = 8.dp),
@@ -232,11 +240,17 @@ private fun AppRankRow(
 
 @Composable
 private fun DetailsHeader(expanded: Boolean, count: Int, onClick: () -> Unit) {
+    val context = LocalContext.current
     TextButton(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().semantics { contentDescription = "${if (expanded) "收起" else "展开"}明细 $count 条" },
+        modifier = Modifier.fillMaxWidth().semantics {
+            contentDescription = context.getString(
+                if (expanded) R.string.details_accessibility_expanded else R.string.details_accessibility_collapsed,
+                count,
+            )
+        },
     ) {
-        Text("明细（$count）${if (expanded) " ▲" else " ▼"}")
+        Text(context.getString(if (expanded) R.string.details_header_expanded else R.string.details_header_collapsed, count))
     }
 }
 
@@ -252,7 +266,11 @@ private fun StatisticsDetailRow(
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .semantics {
-                contentDescription = "通知明细 ${appLabel(context, item.packageName)} ${item.title.orEmpty()}"
+                contentDescription = context.getString(
+                    R.string.notification_detail,
+                    appLabel(context, item.packageName),
+                    item.title.orEmpty(),
+                )
                 role = Role.Button
             }
             .padding(vertical = 6.dp),
@@ -263,19 +281,19 @@ private fun StatisticsDetailRow(
             color = MaterialTheme.colorScheme.primary,
         )
         item.title?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
-        Text(item.content?.takeIf { it.isNotBlank() } ?: item.bigText?.takeIf { it.isNotBlank() } ?: "（无正文）")
+        Text(item.content?.takeIf { it.isNotBlank() } ?: item.bigText?.takeIf { it.isNotBlank() } ?: context.getString(R.string.no_content))
         if (expanded) {
             item.bigText?.takeIf { it.isNotBlank() && it != item.content }?.let {
-                Text("bigText：$it", style = MaterialTheme.typography.bodySmall)
+                Text(context.getString(R.string.big_text_detail, it), style = MaterialTheme.typography.bodySmall)
             }
             if (item.textLines.isNotEmpty()) {
-                Text("textLines：${item.textLines.joinToString("、")}", style = MaterialTheme.typography.bodySmall)
+                Text(context.getString(R.string.text_lines_detail, item.textLines.joinToString(context.getString(R.string.list_separator))), style = MaterialTheme.typography.bodySmall)
             }
             item.channelId?.takeIf { it.isNotBlank() }?.let {
-                Text("channel：$it", style = MaterialTheme.typography.bodySmall)
+                Text(context.getString(R.string.channel_detail, it), style = MaterialTheme.typography.bodySmall)
             }
             item.category?.takeIf { it.isNotBlank() }?.let {
-                Text("category：$it", style = MaterialTheme.typography.bodySmall)
+                Text(context.getString(R.string.category_detail, it), style = MaterialTheme.typography.bodySmall)
             }
         }
     }
@@ -284,3 +302,16 @@ private fun StatisticsDetailRow(
 private fun appLabel(context: Context, packageName: String): String = runCatching {
     context.packageManager.getApplicationInfo(packageName, 0).loadLabel(context.packageManager).toString()
 }.getOrDefault(packageName)
+
+private fun rangeLabel(context: Context, range: StatisticsRange): String = when (range) {
+    StatisticsRange.TODAY -> context.getString(R.string.range_today)
+    StatisticsRange.LAST_7_DAYS -> context.getString(R.string.range_last_7_days)
+    StatisticsRange.LAST_30_DAYS -> context.getString(R.string.range_last_30_days)
+}
+
+private fun hourLabel(context: Context, hour: Int): String = context.getString(R.string.hour_label, hour)
+
+private fun formatDate(context: Context, date: LocalDate): String =
+    DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
+        .withLocale(context.resources.configuration.locales[0])
+        .format(date)

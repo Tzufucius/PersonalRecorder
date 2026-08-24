@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.tuzfucius.personalrecorder.background.BackgroundRuntimeState
 import io.github.tuzfucius.personalrecorder.background.ListenerRuntimeStatus
+import io.github.tuzfucius.personalrecorder.R
 
 @Composable
 fun RuntimeStatusCard(
@@ -23,24 +24,26 @@ fun RuntimeStatusCard(
     githubConnected: Boolean,
     onConflictsClick: () -> Unit = {},
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("运行状态", style = MaterialTheme.typography.titleMedium)
+            Text(context.getString(R.string.background_running), style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(2.dp))
             val listenerLabel = when (state.listenerStatus) {
-                ListenerRuntimeStatus.CONNECTED -> "● 正常"
-                ListenerRuntimeStatus.DISCONNECTED -> "△ 已断开"
-                ListenerRuntimeStatus.UNKNOWN -> "? 状态未知"
+                ListenerRuntimeStatus.CONNECTED -> context.getString(R.string.realtime_connected)
+                ListenerRuntimeStatus.DISCONNECTED -> context.getString(R.string.realtime_disconnected)
+                ListenerRuntimeStatus.UNKNOWN -> context.getString(R.string.realtime_unknown)
             }
-            StatusRow("通知采集", listenerLabel, state.listenerStatus == ListenerRuntimeStatus.CONNECTED)
-            Text("最近采集：${formatRuntimeTime(state.lastEventAt)}", style = MaterialTheme.typography.bodySmall)
-            StatusRow("GitHub", if (githubConnected) "● 已连接" else "△ 未连接", githubConnected)
-            Text("待上传：${state.pendingUploads}    待下载：${state.pendingDownloads}    冲突：${state.conflicts}")
+            StatusRow(context.getString(R.string.notification_access), listenerLabel, state.listenerStatus == ListenerRuntimeStatus.CONNECTED)
+            Text(context.getString(R.string.recent_collection, formatRuntimeTime(context, state.lastEventAt)), style = MaterialTheme.typography.bodySmall)
+            StatusRow("GitHub", if (githubConnected) context.getString(R.string.status_connected) else context.getString(R.string.status_not_connected), githubConnected)
+            Text(context.getString(R.string.pending_transfer, state.pendingUploads, state.pendingDownloads))
+            Text(context.getString(R.string.conflicts_value, state.conflicts))
             if (state.conflicts > 0) {
-                TextButton(onClick = onConflictsClick) { Text("查看冲突详情") }
+                TextButton(onClick = onConflictsClick) { Text(context.getString(R.string.view_conflicts, state.conflicts)) }
             }
-            Text("最近同步：${formatRuntimeTime(state.lastSyncSuccessAt)}", style = MaterialTheme.typography.bodySmall)
-            state.lastSyncError?.let { Text("最近错误：$it", color = MaterialTheme.colorScheme.error) }
+            Text(context.getString(R.string.last_sync, formatRuntimeTime(context, state.lastSyncSuccessAt)), style = MaterialTheme.typography.bodySmall)
+            state.lastSyncError?.let { Text(localizedSyncError(context, it), color = MaterialTheme.colorScheme.error) }
         }
     }
 }
@@ -53,6 +56,6 @@ private fun StatusRow(label: String, value: String, healthy: Boolean) {
     }
 }
 
-private fun formatRuntimeTime(timestamp: Long?): String = timestamp?.let {
+private fun formatRuntimeTime(context: android.content.Context, timestamp: Long?): String = timestamp?.let {
     java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(it))
-} ?: "暂无"
+} ?: context.getString(R.string.no_value)
