@@ -1,0 +1,138 @@
+name: Android Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Validate release tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag. Expected vMAJOR.MINOR.PATCH."
+            exit 1
+          fi
+
+          version_name="${tag#v}"
+          IFS='.' read -r major minor patch <<< "$version_name"
+          version_code=$((10#$major * 10000 + 10#$minor * 100 + 10#$patch))
+          if (( version_code < 1 || version_code > 2147483647 )); then
+            echo "Invalid release versionCode."
+            exit 1
+          fi
+
+          {
+            echo "version_name=$version_name"
+            echo "version_code=$version_code"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Validate release secrets
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$RELEASE_KEYSTORE_BASE64" || \
+            -z "$RELEASE_KEYSTORE_PASSWORD" || \
+            -z "$RELEASE_KEY_ALIAS" || \
+            -z "$RELEASE_KEY_PASSWORD" ]]; then
+            echo "Required release signing secret is missing."
+            exit 1
+          fi
+
+      - name: Restore release keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          keystore_path="$RUNNER_TEMP/personal-recorder-release.jks"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          test -s "$keystore_path"
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
+      - name: Run unit tests
+        run: ./gradlew test
+
+      - name: Build signed release APK
+        env:
+          RELEASE_VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          RELEASE_VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/personal-recorder-release.jks
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease
+
+      - name: Verify signature and prepare release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_apk="app/build/outputs/apk/release/app-release.apk"
+          test -f "$release_apk"
+
+          sdk_dir="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          test -n "$sdk_dir"
+          build_tools_dir="$sdk_dir/build-tools"
+          apksigner_dir="$(find "$build_tools_dir" -mindepth 1 -maxdepth 1 -type d -print | sort -V | tail -n 1)"
+          apksigner="$apksigner_dir/apksigner"
+          test -x "$apksigner"
+          "$apksigner" verify --verbose "$release_apk"
+
+          output_apk="PersonalRecorder-${GITHUB_REF_NAME}.apk"
+          cp "$release_apk" "$output_apk"
+          sha256sum "$output_apk" > "${output_apk}.sha256"
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          output_apk="PersonalRecorder-${tag}.apk"
+          checksum_file="${output_apk}.sha256"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$output_apk" "$checksum_file" --clobber
+          else
+            gh release create "$tag" \
+              "$output_apk" \
+              "$checksum_file" \
+              --title "Personal Recorder $tag" \
+              --generate-notes \
+              --verify-tag
+          fi
