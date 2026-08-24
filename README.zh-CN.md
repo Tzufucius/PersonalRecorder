@@ -6,6 +6,12 @@ Personal Recorder 是一款本地优先的 Android 通知记录应用。应用�
 
 > 把 Android 通知自动沉淀为私有、可检索、可供 AI 分析的个人信息档案。
 
+## 下载
+
+可从 [GitHub Releases](https://github.com/Tuzfucius/PersonalRecorder/releases) 下载最新的已签名 APK。
+
+正式 APK 由版本 Tag 自动构建，同时提供 SHA-256 校验文件。Actions Artifact 是开发测试用 Debug 版本；GitHub Releases 才是面向普通用户的正式签名版本。
+
 你的手机每天都在持续接收关于工作和生活的信息：聊天消息、邮件提醒、日程会议、GitHub 动态、快递、支付、出行以及系统通知。大多数信息看过一次之后，就重新散落回不同的应用里。
 
 Personal Recorder 在 Android 本地持续采集这条通知信息流，把它转化为可以长期保存、回看、归档并再次利用的结构化历史数据。
@@ -135,6 +141,30 @@ Room 是设备上的实时数据源。归档器按半日导出 JSONL 文件，�
 ```
 
 将 `app/build/outputs/apk/debug/app-debug.apk` 安装到 Android 设备，并授予通知访问权限。只有需要远端归档同步和恢复时才需要配置 GitHub。
+
+### 发布新版本
+
+推送语义化版本 Tag：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+GitHub Actions 会自动完成测试、Release APK 构建、签名、签名验证和发布，并生成 SHA-256 校验文件。
+
+### Release 签名配置（维护者）
+
+在 **Settings -> Secrets and variables -> Actions** 中配置以下 GitHub Actions 仓库 Secret：
+
+```text
+RELEASE_KEYSTORE_BASE64
+RELEASE_KEYSTORE_PASSWORD
+RELEASE_KEY_ALIAS
+RELEASE_KEY_PASSWORD
+```
+
+后续版本必须继续使用同一个 Android signing key，用户才能在已有应用上直接安装更新。不要把 keystore 或其编码内容提交到仓库。
 
 ## 限制
 

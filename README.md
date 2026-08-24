@@ -6,6 +6,12 @@ Personal Recorder is a local-first Android notification recorder. It collects no
 
 > Turn Android notifications into a private, searchable, AI-ready personal activity log.
 
+## Download
+
+Download the latest signed APK from [GitHub Releases](https://github.com/Tuzfucius/PersonalRecorder/releases).
+
+Release APKs are built automatically from version tags and include a SHA-256 checksum. Actions artifacts are development/test Debug builds; GitHub Releases are the formal signed releases for end users.
+
 Your phone already receives a continuous stream of information about your work and daily life: messages, email alerts, calendar reminders, GitHub activity, deliveries, payments, travel updates, and system notices. Most of it is read once and then disappears into individual apps.
 
 Personal Recorder captures that notification stream locally on Android and turns it into structured history you can keep, review, archive, and reuse later.
@@ -135,6 +141,30 @@ Restore keeps local data separate until conflicts are resolved. Synchronization 
 ```
 
 Install `app/build/outputs/apk/debug/app-debug.apk` on an Android device and grant notification access. GitHub configuration is only required if you want remote archive synchronization and restore.
+
+### Creating a release
+
+Push a semantic version tag:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+GitHub Actions will run tests, build and sign the Release APK, verify its signature, and publish it with a SHA-256 checksum.
+
+### Release signing (maintainers)
+
+Configure these GitHub Actions repository secrets under **Settings -> Secrets and variables -> Actions**:
+
+```text
+RELEASE_KEYSTORE_BASE64
+RELEASE_KEYSTORE_PASSWORD
+RELEASE_KEY_ALIAS
+RELEASE_KEY_PASSWORD
+```
+
+The same Android signing key must be kept and reused for all later versions so users can install updates over the existing app. Never commit the keystore or its encoded contents to the repository.
 
 ## Limitations
 
