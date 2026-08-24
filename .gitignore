@@ -1,4 +1,7 @@
 *.iml
+*.jks
+*.keystore
+keystore-base64.txt
 .gradle
 # Local IDE and code intelligence metadata
 /.codegraph/

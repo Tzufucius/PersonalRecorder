@@ -128,6 +128,19 @@ Room 是设备上的实时数据源。归档器按半日导出 JSONL 文件，�
 
 ## 构建与运行
 
+### 下载
+
+可从 [GitHub Releases](https://github.com/Tuzfucius/PersonalRecorder/releases) 下载最新的已签名 APK。
+
+GitHub Releases 包含两类已签名 APK：
+
+- `vMAJOR.MINOR.PATCH` 是维护者确认的稳定版本。
+- `weekly-YYYY.MM.DD` 是基于最新 `main` 代码自动构建的预发布版本。
+
+两类版本都会提供 SHA-256 校验文件。Actions Artifact 是开发测试用 Debug 版本；GitHub Releases 才是面向普通用户的可安装签名版本。
+
+### 本地构建
+
 ```powershell
 .\gradlew.bat test
 .\gradlew.bat assembleDebug
@@ -135,6 +148,50 @@ Room 是设备上的实时数据源。归档器按半日导出 JSONL 文件，�
 ```
 
 将 `app/build/outputs/apk/debug/app-debug.apk` 安装到 Android 设备，并授予通知访问权限。只有需要远端归档同步和恢复时才需要配置 GitHub。
+
+<details>
+<summary>开发者与维护者发布说明</summary>
+
+### Weekly 自动构建
+
+GitHub Actions 会在每周一香港时间 00:00 检查 `main` 最近 7 天是否有提交。没有代码变化时不会构建 APK，也不会创建预发布版本。有变化时会构建签名 APK，并发布 `weekly-YYYY.MM.DD` 预发布版本；同一天重新运行会覆盖原有 Assets。
+
+Weekly 必须使用与稳定版本相同的 signing key，这样后续稳定版本才能覆盖安装 Weekly APK。版本名基于最新稳定 Tag，例如 `1.0.0-weekly.20260824`；在首个稳定 Tag 之前回退使用 `1.0.0`。
+
+### 发布新版本
+
+推送语义化版本 Tag：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+GitHub Actions 会自动完成测试、Release APK 构建、签名、签名验证和发布，并生成 SHA-256 校验文件。
+
+### Release 签名配置（维护者）
+
+在 **Settings -> Secrets and variables -> Actions** 中配置以下 GitHub Actions 仓库 Secret：
+
+```text
+RELEASE_KEYSTORE_BASE64
+RELEASE_KEYSTORE_PASSWORD
+RELEASE_KEY_ALIAS
+RELEASE_KEY_PASSWORD
+```
+
+后续版本必须继续使用同一个 Android signing key，用户才能在已有应用上直接安装更新。不要把 keystore 或其编码内容提交到仓库。
+
+稳定版本会为每个语义化版本预留 999 个 Weekly versionCode：
+
+```text
+稳定版 versionCode = (MAJOR * 10000 + MINOR * 100 + PATCH) * 1000
+Weekly versionCode = 稳定版 versionCode + 稳定 Tag 之后的提交数
+```
+
+首个稳定 Tag 之前，Weekly versionCode 使用仓库提交总数，必须保持在 `1..999` 范围内。预留区间耗尽前需要先发布新的稳定 Tag。
+
+</details>
 
 ## 限制
 

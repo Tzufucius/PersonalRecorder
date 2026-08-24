@@ -1,0 +1,285 @@
+name: Android Weekly
+
+on:
+  schedule:
+    - cron: "0 16 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weekly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      has_changes: ${{ steps.changes.outputs.has_changes }}
+      commit_count: ${{ steps.changes.outputs.commit_count }}
+      stable_tag: ${{ steps.changes.outputs.stable_tag }}
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate main ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Weekly workflow must run from the main branch."
+            exit 1
+          fi
+
+      - name: Check for recent commits
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          stable_tag=""
+          while IFS= read -r candidate; do
+            if [[ ! "$candidate" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              continue
+            fi
+            if git merge-base --is-ancestor "$candidate" HEAD; then
+              stable_tag="$candidate"
+              break
+            fi
+          done < <(git tag --list 'v*.*.*' --sort=-v:refname)
+
+          if [[ -n "$stable_tag" ]]; then
+            commit_count="$(git rev-list --count --since='7 days ago' "${stable_tag}..HEAD")"
+          else
+            commit_count="$(git rev-list --count --since='7 days ago' HEAD)"
+          fi
+
+          has_changes=false
+          if (( commit_count > 0 )); then
+            has_changes=true
+          fi
+
+          echo "commit_count=$commit_count" >> "$GITHUB_OUTPUT"
+          echo "has_changes=$has_changes" >> "$GITHUB_OUTPUT"
+          echo "stable_tag=$stable_tag" >> "$GITHUB_OUTPUT"
+          echo "Recent commits after the latest stable Tag: $commit_count"
+
+  weekly:
+    needs: check
+    if: needs.check.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Resolve Weekly version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          weekly_date="$(TZ=Asia/Hong_Kong date +%Y.%m.%d)"
+          short_sha="${GITHUB_SHA:0:7}"
+          release_tag="weekly-${weekly_date}-${short_sha}"
+          base_version="1.0.0"
+          should_build=true
+
+          stable_tag=""
+          while IFS= read -r candidate; do
+            if [[ ! "$candidate" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              continue
+            fi
+            if git merge-base --is-ancestor "$candidate" HEAD; then
+              stable_tag="$candidate"
+              break
+            fi
+          done < <(git tag --list 'v*.*.*' --sort=-v:refname)
+
+          if [[ -n "$stable_tag" ]]; then
+            base_version="${stable_tag#v}"
+            IFS='.' read -r major minor patch <<< "$base_version"
+            base_code=$((major * 10000 + minor * 100 + patch))
+            stable_version_code=$((base_code * 1000))
+            commits_since_stable="$(git rev-list --count "${stable_tag}..HEAD")"
+
+            if (( commits_since_stable == 0 )); then
+              echo "No commits since the latest stable Tag; skipping Weekly build."
+              should_build=false
+              version_code=0
+            elif (( commits_since_stable > 999 )); then
+              echo "Weekly version range is exhausted; publish a new stable Tag."
+              exit 1
+            elif (( stable_version_code > 2147482648 )); then
+              echo "Stable versionCode leaves no room for Weekly upgrades."
+              exit 1
+            else
+              version_code=$((stable_version_code + commits_since_stable))
+            fi
+          else
+            commits_since_repository="$(git rev-list --count HEAD)"
+            if (( commits_since_repository < 1 || commits_since_repository > 999 )); then
+              echo "Weekly versionCode must be between 1 and 999 before the first stable Tag."
+              exit 1
+            fi
+            version_code="$commits_since_repository"
+          fi
+
+          if [[ "$should_build" == true ]] && (( version_code < 1 || version_code > 2147483647 )); then
+            echo "Invalid Weekly versionCode."
+            exit 1
+          fi
+
+          {
+            echo "weekly_date=$weekly_date"
+            echo "release_tag=$release_tag"
+            echo "version_name=${base_version}-weekly.${weekly_date}"
+            echo "version_code=$version_code"
+            echo "should_build=$should_build"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Validate release secrets
+        if: steps.version.outputs.should_build == 'true'
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$RELEASE_KEYSTORE_BASE64" || \
+            -z "$RELEASE_KEYSTORE_PASSWORD" || \
+            -z "$RELEASE_KEY_ALIAS" || \
+            -z "$RELEASE_KEY_PASSWORD" ]]; then
+            echo "Required release signing secret is missing."
+            exit 1
+          fi
+
+      - name: Restore release keystore
+        if: steps.version.outputs.should_build == 'true'
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          keystore_path="$RUNNER_TEMP/personal-recorder-release.jks"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          test -s "$keystore_path"
+
+      - name: Make Gradle wrapper executable
+        if: steps.version.outputs.should_build == 'true'
+        run: chmod +x gradlew
+
+      - name: Run unit tests
+        if: steps.version.outputs.should_build == 'true'
+        run: ./gradlew test
+
+      - name: Build signed Weekly APK
+        if: steps.version.outputs.should_build == 'true'
+        env:
+          RELEASE_VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          RELEASE_VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/personal-recorder-release.jks
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease
+
+      - name: Upload Weekly mapping
+        if: steps.version.outputs.should_build == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: weekly-mapping-${{ steps.version.outputs.release_tag }}
+          path: app/build/outputs/mapping/release/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Verify signature and prepare Weekly assets
+        if: steps.version.outputs.should_build == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_apk="app/build/outputs/apk/release/app-release.apk"
+          test -f "$release_apk"
+
+          sdk_dir="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          test -n "$sdk_dir"
+          build_tools_dir="$sdk_dir/build-tools"
+          apksigner_dir="$(find "$build_tools_dir" -mindepth 1 -maxdepth 1 -type d -print | sort -V | tail -n 1)"
+          apksigner="$apksigner_dir/apksigner"
+          test -x "$apksigner"
+          "$apksigner" verify --verbose --print-certs "$release_apk"
+
+          apkanalyzer="$(command -v apkanalyzer || true)"
+          if [[ -z "$apkanalyzer" ]]; then
+            apkanalyzer="$sdk_dir/cmdline-tools/latest/bin/apkanalyzer"
+          fi
+          test -x "$apkanalyzer" || test -x "${apkanalyzer}.bat"
+          if [[ -x "$apkanalyzer" ]]; then
+            analyzer_cmd="$apkanalyzer"
+          else
+            analyzer_cmd="${apkanalyzer}.bat"
+          fi
+          test "$("$analyzer_cmd" manifest application-id "$release_apk")" = "io.github.tuzfucius.personalrecorder"
+          test "$("$analyzer_cmd" manifest version-name "$release_apk")" = "${{ steps.version.outputs.version_name }}"
+          test "$("$analyzer_cmd" manifest version-code "$release_apk")" = "${{ steps.version.outputs.version_code }}"
+          test "$("$analyzer_cmd" manifest min-sdk "$release_apk")" = "29"
+          test "$("$analyzer_cmd" manifest target-sdk "$release_apk")" = "36"
+
+          output_apk="PersonalRecorder-${{ steps.version.outputs.release_tag }}.apk"
+          cp "$release_apk" "$output_apk"
+          sha256sum "$output_apk" > "${output_apk}.sha256"
+
+      - name: Create or update Weekly GitHub Pre-release
+        if: steps.version.outputs.should_build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.release_tag }}"
+          output_apk="PersonalRecorder-${tag}.apk"
+          checksum_file="${output_apk}.sha256"
+
+          if git rev-parse --verify --quiet "refs/tags/${tag}^{commit}" >/dev/null; then
+            tag_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+            if [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
+              echo "Weekly tag already points to a different commit."
+              exit 1
+            fi
+          fi
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$output_apk" "$checksum_file" --clobber
+          else
+            gh release create "$tag" \
+              "$output_apk" \
+              "$checksum_file" \
+              --title "Personal Recorder Weekly ${{ steps.version.outputs.weekly_date }}" \
+              --prerelease \
+              --generate-notes \
+              --target "$GITHUB_SHA"
+          fi
+
+      - name: Remove Weekly release keystore
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/personal-recorder-release.jks"

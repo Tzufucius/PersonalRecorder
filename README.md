@@ -128,6 +128,19 @@ Restore keeps local data separate until conflicts are resolved. Synchronization 
 
 ## Build and run
 
+### Download
+
+Download the latest signed APK from [GitHub Releases](https://github.com/Tuzfucius/PersonalRecorder/releases).
+
+GitHub Releases contain two kinds of signed APKs:
+
+- `vMAJOR.MINOR.PATCH` releases are stable versions confirmed by a maintainer.
+- `weekly-YYYY.MM.DD` releases are automatic Pre-releases from the latest `main` changes.
+
+Both include a SHA-256 checksum. Actions artifacts are development/test Debug builds; GitHub Releases are the installable signed releases for end users.
+
+### Local build
+
 ```powershell
 .\gradlew.bat test
 .\gradlew.bat assembleDebug
@@ -135,6 +148,50 @@ Restore keeps local data separate until conflicts are resolved. Synchronization 
 ```
 
 Install `app/build/outputs/apk/debug/app-debug.apk` on an Android device and grant notification access. GitHub configuration is only required if you want remote archive synchronization and restore.
+
+<details>
+<summary>Developer and maintainer release notes</summary>
+
+### Weekly builds
+
+Every Monday at 00:00 Hong Kong time, GitHub Actions checks whether `main` received commits during the previous seven days. If there are no changes, no APK or Pre-release is created. When changes exist, Actions builds a signed APK and publishes a `weekly-YYYY.MM.DD` Pre-release; rerunning the same day updates its assets.
+
+Weekly builds use the same signing key as stable releases, so a later stable release can upgrade a Weekly APK. The version name is based on the latest stable Tag, for example `1.0.0-weekly.20260824`. Before the first stable Tag, the fallback base is `1.0.0`.
+
+### Creating a release
+
+Push a semantic version tag:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+GitHub Actions will run tests, build and sign the Release APK, verify its signature, and publish it with a SHA-256 checksum.
+
+### Release signing (maintainers)
+
+Configure these GitHub Actions repository secrets under **Settings -> Secrets and variables -> Actions**:
+
+```text
+RELEASE_KEYSTORE_BASE64
+RELEASE_KEYSTORE_PASSWORD
+RELEASE_KEY_ALIAS
+RELEASE_KEY_PASSWORD
+```
+
+The same Android signing key must be kept and reused for all later versions so users can install updates over the existing app. Never commit the keystore or its encoded contents to the repository.
+
+Stable `versionCode` reserves 999 Weekly slots per semantic version:
+
+```text
+stable versionCode = (MAJOR * 10000 + MINOR * 100 + PATCH) * 1000
+Weekly versionCode = stable versionCode + commits since the stable Tag
+```
+
+Before the first stable Tag, Weekly `versionCode` uses the repository commit count and must stay within `1..999`. Publish a new stable Tag before the reserved Weekly range is exhausted.
+
+</details>
 
 ## Limitations
 
