@@ -211,6 +211,12 @@ data class SyncBatchResult(val results: List<ArchiveSyncResult>) {
         get() = results.any { it.error?.retryable == true }
 }
 
+/** Result of the local daily finalize phase; cloud publication is deliberately separate. */
+data class DailyFinalizeResult(
+    val localFinalizeSuccessful: Boolean,
+    val needsCloudSync: Boolean,
+)
+
 data class ArchiveSyncState(
     val archive: CloudArchive,
     val backend: CloudBackendType,

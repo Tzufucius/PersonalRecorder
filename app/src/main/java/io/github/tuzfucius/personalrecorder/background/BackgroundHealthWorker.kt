@@ -20,6 +20,8 @@ import io.github.tuzfucius.personalrecorder.data.AppDatabase
 import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsState
 import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsStore
 import io.github.tuzfucius.personalrecorder.sync.CloudBackendType
+import io.github.tuzfucius.personalrecorder.sync.CloudSyncRuntime
+import io.github.tuzfucius.personalrecorder.sync.SyncScheduler
 import kotlinx.coroutines.flow.first
 import java.time.LocalDate
 import java.time.ZoneId
@@ -38,12 +40,17 @@ internal fun shouldRequestListenerRebind(
     return (state.listenerStatus != ListenerRuntimeStatus.CONNECTED || stale) && cooldownElapsed
 }
 
+internal suspend fun ensureDailyFinalizeWatchdog(scheduler: SyncScheduler) {
+    scheduler.ensureDailyFinalizeScheduled()
+}
+
 class BackgroundHealthWorker(
     appContext: Context,
     workerParams: WorkerParameters,
 ) : CoroutineWorker(appContext, workerParams) {
     override suspend fun doWork(): Result = runCatching {
         val context = applicationContext
+        runCatching { ensureDailyFinalizeWatchdog(CloudSyncRuntime.scheduler(context)) }
         val runtime = BackgroundRuntimeStateStore(context)
         val database = AppDatabase.getInstance(context)
         runtime.updateDeviceDiagnostics(BackgroundDiagnostics.read(context))

@@ -4,9 +4,11 @@
 
 ## 调度与错误
 
-`CloudSyncWorker` 使用 WorkManager 和 `NetworkType.CONNECTED`。普通云同步仍按用户选择的频率尽力执行，手动任务使用唯一 work `cloud_archive_sync_now`。每日完整归档由独立的 `DailyArchiveFinalizeWorker` 负责，使用 OneTimeWorkRequest 动态安排本地时间 `00:30`，执行后追加下一次任务。Application 启动和 GitHub 连接成功都会确保每日任务存在，并对历史缺口 enqueue 唯一 catch-up work；这些流程不依赖打开 UI 或修改同步频率。
+`CloudSyncWorker` 使用 WorkManager 和 `NetworkType.CONNECTED`。普通云同步仍按用户选择的频率尽力执行，手动任务使用唯一 work `cloud_archive_sync_now`。每日完整归档由独立的 `DailyArchiveFinalizeWorker` 负责，使用无网络约束的 OneTimeWorkRequest 按本地时间 `00:30` 执行，先在离线状态完成 Room 到 JSONL/manifest 的归档并登记 pending，成功后再触发普通云同步。每日任务使用按目标日期命名的独立 work 和 `REPLACE`，失败也会安排下一次；Application 启动、GitHub 连接成功和健康检查都会确保任务存在，并对历史缺口 enqueue 唯一 catch-up work；这些流程不依赖打开 UI 或修改同步频率。
 
 网络、服务不可用和限流错误由 WorkManager 使用指数退避重试；认证、权限、冲突、无效归档和未配置错误只记录失败，不由 Worker 无限重试。网络失败时本地 JSONL 和 manifest 保留，Room 同步状态保持 pending，下一次运行只补传。Runner 在进程内使用 Mutex，避免每日任务、周期任务和手动任务同时处理同一批文件。
+
+每日 Worker 的 `Result.success()` 只表示本地最终归档成功，不代表 GitHub 已上传；GitHub 认证失败不会阻止下一次每日任务。生成 manifest 时始终创建对应的 GitHub manifest 同步状态，历史日期的 pending 状态也会进入 reconcile scope，不受七日增量窗口限制。
 
 ## GitHub
 

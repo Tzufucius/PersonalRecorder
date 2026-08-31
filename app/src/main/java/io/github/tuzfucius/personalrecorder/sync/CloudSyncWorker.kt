@@ -24,7 +24,10 @@ interface CloudSyncWorkRunner {
 
     suspend fun runSync(force: Boolean): SyncBatchResult = runSync()
 
-    suspend fun runDailyFinalize(): SyncBatchResult = runSync(force = false)
+    suspend fun runDailyFinalize(): DailyFinalizeResult = DailyFinalizeResult(
+        localFinalizeSuccessful = true,
+        needsCloudSync = true,
+    )
 }
 
 class CloudSyncWorker(
@@ -99,16 +102,18 @@ class WorkManagerSyncScheduler(context: Context) : SyncScheduler {
 
     override suspend fun ensureDailyFinalizeScheduled() {
         val hasActiveWork = withContext(Dispatchers.IO) {
-            workManager.getWorkInfosForUniqueWork(DAILY_SCHEDULE_NAME).get()
+            workManager.getWorkInfosByTag(DailyArchiveFinalizeWorker.WORK_TAG).get()
                 .any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.BLOCKED }
         }
         if (!hasActiveWork) {
+            val now = System.currentTimeMillis()
+            val target = DailyArchiveFinalizeScheduler.nextTargetMillis(now)
             workManager.enqueueUniqueWork(
-                DAILY_SCHEDULE_NAME,
+                DailyArchiveFinalizeScheduler.uniqueWorkName(target),
                 ExistingWorkPolicy.REPLACE,
                 DailyArchiveFinalizeWorker.request(
                     scheduled = true,
-                    initialDelayMillis = DailyArchiveFinalizeScheduler.nextDelayMillis(),
+                    initialDelayMillis = (target - now).coerceAtLeast(0L),
                 ),
             )
         }
@@ -130,6 +135,8 @@ class WorkManagerSyncScheduler(context: Context) : SyncScheduler {
         workManager.cancelUniqueWork(UNIQUE_NOW_WORK_NAME)
         workManager.cancelUniqueWork(DAILY_SCHEDULE_NAME)
         workManager.cancelUniqueWork(DAILY_CATCH_UP_NAME)
+        workManager.cancelAllWorkByTag(DailyArchiveFinalizeWorker.WORK_TAG)
+        workManager.cancelAllWorkByTag(DailyArchiveFinalizeWorker.CATCH_UP_WORK_TAG)
     }
 
     companion object {

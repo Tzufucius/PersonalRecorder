@@ -43,10 +43,14 @@ class ArchiveSyncRunner(
         syncConfigured(force)
     }
 
-    override suspend fun runDailyFinalize(): SyncBatchResult = syncMutex.withLock {
+    override suspend fun runDailyFinalize(): DailyFinalizeResult = syncMutex.withLock {
         writer.deviceInstanceId = DeviceIdentityStore(appContext).getOrCreateId()
         archiveService.finalizeClosedArchives(nowMillis())
-        syncConfigured(force = false)
+        val current = (settings.state.first() as? CloudSyncSettingsState.Ready)?.settings
+        DailyFinalizeResult(
+            localFinalizeSuccessful = true,
+            needsCloudSync = current?.githubEnabled == true && current.githubConnected,
+        )
     }
 
     suspend fun hasClosedArchiveGaps(): Boolean = syncMutex.withLock {

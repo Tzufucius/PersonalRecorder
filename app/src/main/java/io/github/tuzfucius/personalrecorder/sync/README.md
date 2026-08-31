@@ -9,7 +9,7 @@
 - `ArchiveReconcileService.kt`：Finalize → Discover → Pull → Verify → Merge → Push → Persist 的单实例协调流程。
 - `ArchiveImportService.kt`：事务化、按事件 ID 幂等恢复到 Room。
 - `CloudSyncWorker.kt`：使用 WorkManager 网络约束进行普通云同步调度。
-- `DailyArchiveFinalizeWorker.kt`：按本地时间 `00:30` 运行每日完整归档，并补偿历史缺口。
+- `DailyArchiveFinalizeWorker.kt`：按本地时间 `00:30` 离线运行每日完整归档，并补偿历史缺口；本地成功后再触发普通云同步，失败也会独立安排下一次任务。
 - `GitHubSync.kt`、`GitHubArchiveClient.kt`：PAT 连接校验、私有仓库保护、Contents API 元数据/目录发现与带 SHA 的 PUT；归档正文使用 raw media type 下载。
 - `GitHubRestoreWorker.kt`：唯一 FULL_RESTORE 工作、联网约束、进度上报、幂等重试和失败分类。
 - `CloudCredentialStore.kt`、`SecureSecretStore.kt`：仅通过 Android Keystore 保存 GitHub PAT。
