@@ -8,7 +8,9 @@
 
 网络、服务不可用和限流错误由 WorkManager 使用指数退避重试；认证、权限、冲突、无效归档和未配置错误只记录失败，不由 Worker 无限重试。网络失败时本地 JSONL 和 manifest 保留，Room 同步状态保持 pending，下一次运行只补传。Runner 在进程内使用 Mutex，避免每日任务、周期任务和手动任务同时处理同一批文件。
 
-每日 Worker 的 `Result.success()` 只表示本地最终归档成功，不代表 GitHub 已上传；GitHub 认证失败不会阻止下一次每日任务。生成 manifest 时始终创建对应的 GitHub manifest 同步状态，历史日期的 pending 状态也会进入 reconcile scope，不受七日增量窗口限制。
+每日 Worker 的 `Result.success()` 只表示本地最终归档成功，不代表 GitHub 已上传；GitHub 认证失败不会阻止下一次每日任务。每日 finalizer 目标约为本地时间 `00:30`，由 WorkManager best-effort 执行，不保证精确时刻。生成 manifest 时始终创建对应的 GitHub manifest 同步状态，历史日期的 pending 状态也会进入 reconcile scope，不受七日增量窗口限制。本地有效历史归档不会因为 GitHub 尚未同步而重复重建。
+
+本地完整性和远端同步状态是两个独立维度：`Local COMPLETE` 表示两个 segment 与 valid manifest 已在设备上完成；`Remote PENDING` 表示本地 COMPLETE 但 GitHub manifest 尚未同步；`Remote SYNCED` 表示本地 COMPLETE 且 GitHub manifest 已成功发布。GitHub pending 由普通 `CloudSyncWorker` 和 `ArchiveReconcileService` 独立补传，不会被重新塞回 archive finalizer。
 
 ## GitHub
 

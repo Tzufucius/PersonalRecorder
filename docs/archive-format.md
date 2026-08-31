@@ -48,4 +48,6 @@ archive/YYYY/MM/YYYY-MM-DD/
 - 只有一个 JSONL，或两个 JSONL 存在但没有 manifest：`INCOMPLETE`
 - manifest 引用文件缺失、数量不匹配、SHA 缺失或 SHA 不匹配：`INVALID`
 
+本地完整性与远端同步是两个独立维度：`Local COMPLETE` 表示两个 segment 和有效 manifest 已在设备上完成；`Remote PENDING` 表示本地 COMPLETE 但 GitHub manifest 尚未同步；`Remote SYNCED` 表示本地 COMPLETE 且 GitHub manifest 已成功发布。远端 pending 不属于本地 archive gap。
+
 最终 finalize 在 manifest 生成前允许基于 Room 重建尚未冻结的分片，以吸收迟到事件；manifest 成功同步后，历史 JSONL 和 manifest 保持 immutable。旧 schema 1/2 manifest 仍可解析，但缺少可验证 SHA 时不能判定为 `COMPLETE`。

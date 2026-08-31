@@ -48,7 +48,15 @@ class ArchiveService(
     /** Finalizes every closed day whose manifest is absent or invalid. */
     suspend fun finalizeClosedArchives(nowMillis: Long): List<LocalDate> {
         val missing = missingDates(nowMillis, onlyFullyClosedDays = true)
-        missing.forEach {
+        val finalTarget = java.time.Instant.ofEpochMilli(nowMillis)
+            .atZone(writer.zoneId)
+            .toLocalDate()
+            .minusDays(1)
+        val dates = (missing + finalTarget.takeIf { hasArchiveInputs(it) })
+            .filterNotNull()
+            .distinct()
+            .sorted()
+        dates.forEach {
             archiveDay(
                 it,
                 nowMillis = nowMillis,
@@ -56,7 +64,7 @@ class ArchiveService(
                 allowRewriteValidManifest = true,
             )
         }
-        return missing
+        return dates
     }
 
     suspend fun hasClosedArchiveGaps(nowMillis: Long): Boolean =
@@ -92,23 +100,28 @@ class ArchiveService(
             .mapNotNull { runCatching { LocalDate.parse(it.date) }.getOrNull() }
             .filter(writer::isManifestComplete)
             .toSet()
-        val existingManifestDates = if (onlyFullyClosedDays) {
-            validManifestDates.filter { date ->
-                dao.getArchiveSyncState(
-                    segmentId = "$date-MANIFEST",
-                    backend = CloudBackendType.GITHUB.name,
-                )?.status == ArchiveSyncStateEntity.Status.SYNCED
-            }.toSet()
-        } else {
-            validManifestDates
-        }
         return ArchivePlanner(writer.zoneId).missingClosedDates(
             minTimestamp = bounds.minTimestamp,
             nowMillis = nowMillis,
             existingSegmentIds = existingSegments,
-            existingManifestDates = existingManifestDates,
+            existingManifestDates = validManifestDates,
             onlyFullyClosedDays = onlyFullyClosedDays,
         )
+    }
+
+    private suspend fun hasArchiveInputs(date: LocalDate): Boolean {
+        val dao = database.eventDao()
+        if (dao.getArchiveSyncState(
+                segmentId = "$date-MANIFEST",
+                backend = CloudBackendType.GITHUB.name,
+            )?.status == ArchiveSyncStateEntity.Status.SYNCED
+        ) return false
+        if (dao.getArchiveSegmentsForDate(date.toString()).isNotEmpty()) return true
+        val slices = ArchivePartition.slicesForDate(date, writer.zoneId)
+        return dao.getEventsForArchive(
+            startMillis = slices.first().startMillis,
+            endMillis = slices.last().endMillis,
+        ).isNotEmpty()
     }
 }
 
