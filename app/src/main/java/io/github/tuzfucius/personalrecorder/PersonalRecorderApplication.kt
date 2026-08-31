@@ -6,6 +6,9 @@ import io.github.tuzfucius.personalrecorder.background.BackgroundSettingsStore
 import io.github.tuzfucius.personalrecorder.background.RecentTaskController
 import io.github.tuzfucius.personalrecorder.background.BackgroundRuntimeStateStore
 import io.github.tuzfucius.personalrecorder.sync.CloudSyncRuntime
+import io.github.tuzfucius.personalrecorder.sync.SyncSchedulingCoordinator
+import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsState
+import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -27,6 +30,15 @@ class PersonalRecorderApplication : Application() {
         super.onCreate()
         recentTaskController = RecentTaskController.create(this)
         CloudSyncRuntime.configure(this)
+        applicationScope.launch(Dispatchers.IO) {
+            runCatching {
+                val scheduler = CloudSyncRuntime.scheduler(this@PersonalRecorderApplication)
+                val state = CloudSyncSettingsStore(this@PersonalRecorderApplication).state.first()
+                val settings = (state as? CloudSyncSettingsState.Ready)?.settings
+                val hasGap = CloudSyncRuntime.ensureConfigured(this@PersonalRecorderApplication).hasClosedArchiveGaps()
+                SyncSchedulingCoordinator.ensure(settings, scheduler, triggerCatchUp = hasGap)
+            }
+        }
         applicationScope.launch {
             BackgroundRuntimeStateStore(this@PersonalRecorderApplication)
                 .markProcessStarted(processInstanceId, processStartedAt)

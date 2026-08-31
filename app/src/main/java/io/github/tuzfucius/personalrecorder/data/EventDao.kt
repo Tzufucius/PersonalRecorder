@@ -94,7 +94,11 @@ interface EventDao {
             "LEFT JOIN archive_conflicts unresolved ON unresolved.segmentId = s.segmentId AND unresolved.resolved = 0 " +
             "WHERE s.closed = 1 AND (state.segmentId IS NULL OR " +
             "state.status IN ('PENDING', 'PENDING_UPLOAD', 'PENDING_DOWNLOAD', 'SYNCING', 'CONFLICT', 'FAILED') " +
-            "OR unresolved.conflictId IS NOT NULL)"
+            "OR unresolved.conflictId IS NOT NULL) " +
+            "UNION " +
+            "SELECT DISTINCT substr(segmentId, 1, 10) AS date FROM archive_sync_states " +
+            "WHERE backend = :backend AND segmentId LIKE '____-__-__-MANIFEST' " +
+            "AND status IN ('PENDING', 'PENDING_UPLOAD', 'PENDING_DOWNLOAD', 'SYNCING', 'CONFLICT', 'FAILED')"
     )
     suspend fun getReconcileScopeDates(backend: String): List<String>
 

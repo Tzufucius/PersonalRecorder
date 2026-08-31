@@ -21,6 +21,7 @@ import io.github.tuzfucius.personalrecorder.sync.GitHubRestoreWorker
 import io.github.tuzfucius.personalrecorder.sync.SecureSecretStore
 import io.github.tuzfucius.personalrecorder.sync.SyncFrequency
 import io.github.tuzfucius.personalrecorder.sync.SyncScheduler
+import io.github.tuzfucius.personalrecorder.sync.SyncSchedulingCoordinator
 import io.github.tuzfucius.personalrecorder.sync.ReconcileMode
 import io.github.tuzfucius.personalrecorder.sync.RestoreState
 import io.github.tuzfucius.personalrecorder.R
@@ -67,6 +68,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun setGithubEnabled(enabled: Boolean) = viewModelScope.launch {
         settingsStore.setGithubEnabled(enabled)
+        if (enabled) ensureBackgroundSyncScheduled(triggerCatchUp = false)
     }
 
     fun setFrequency(frequency: SyncFrequency) = viewModelScope.launch {
@@ -90,11 +92,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 )
                 val result = coordinator.connect(token, repositoryName)
                 result.onSuccess { login ->
-                    viewModelScope.launch {
-                        settingsStore.setGithubEnabled(true)
-                        _message.value = UiMessage.Resource(R.string.github_connected_message, listOf(login))
-                        discoverAfterConnect()
-                    }
+                    settingsStore.setGithubEnabled(true)
+                    ensureBackgroundSyncScheduled(triggerCatchUp = true)
+                    _message.value = UiMessage.Resource(R.string.github_connected_message, listOf(login))
+                    discoverAfterConnect()
                 }.onFailure { error ->
                     _message.value = localizeSyncError(error)
                 }
@@ -208,6 +209,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun clearMessage() {
         _message.value = null
     }
+
+    private suspend fun ensureBackgroundSyncScheduled(triggerCatchUp: Boolean) {
+        val current = (settingsStore.state.first() as? CloudSyncSettingsState.Ready)?.settings ?: return
+        SyncSchedulingCoordinator.ensure(current, scheduler, triggerCatchUp)
+    }
 }
 
 data class RestoreUiState(
@@ -227,6 +233,8 @@ data class RestorePrompt(val days: Int, val archives: Int)
 private object NoOpSyncScheduler : SyncScheduler {
     override fun schedule(frequency: SyncFrequency) = Unit
     override fun enqueueNow() = Unit
+    override suspend fun ensureDailyFinalizeScheduled() = Unit
+    override suspend fun enqueueDailyFinalizeCatchUp() = Unit
     override fun observeNowWork(): Flow<List<WorkInfo>> = emptyFlow()
     override fun cancel() = Unit
 }

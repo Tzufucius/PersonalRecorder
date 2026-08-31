@@ -81,6 +81,7 @@ data class ArchiveManifest(
     val totalEventCount: Int,
     val sourceDeviceIds: List<String> = emptyList(),
     val lastWriterDeviceId: String? = null,
+    val completedAt: String? = null,
 )
 
 @Serializable

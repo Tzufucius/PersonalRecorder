@@ -2,12 +2,17 @@ package io.github.tuzfucius.personalrecorder.archive
 
 import io.github.tuzfucius.personalrecorder.data.ArchiveSegmentEntity
 import io.github.tuzfucius.personalrecorder.data.PersonalEvent
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 
 data class ArchiveSegmentResult(
@@ -36,7 +41,7 @@ data class ArchiveDayResult(
     val manifest: File?,
 )
 
-/** Writes immutable JSONL files below filesDir/archive. */
+/** Writes JSONL files below filesDir/archive and freezes them once manifest is valid. */
 class ArchiveWriter(
     filesDir: File,
     val zoneId: ZoneId = ZoneId.systemDefault(),
@@ -45,17 +50,25 @@ class ArchiveWriter(
 ) {
     private val archiveRoot = File(filesDir, "archive")
 
-    fun writeSegment(date: LocalDate, half: ArchiveHalf, events: Iterable<PersonalEvent>): ArchiveSegmentResult {
+    fun writeSegment(
+        date: LocalDate,
+        half: ArchiveHalf,
+        events: Iterable<PersonalEvent>,
+        rewriteExisting: Boolean = false,
+    ): ArchiveSegmentResult {
         val slice = ArchivePartition.slicesForDate(date, zoneId).first { it.half == half }
-        val file = File(archiveRoot, "${date.format(java.time.format.DateTimeFormatter.ofPattern("yyyy/MM"))}/$date/${half.fileName}")
-        if (!file.exists()) {
-            file.parentFile?.mkdirs()
+        val file = segmentFile(date, half)
+        if (rewriteExisting || !file.exists()) {
             val lines = events.asSequence()
                 .filter { it.timestamp >= slice.startMillis && it.timestamp < slice.endMillis }
                 .sortedWith(compareBy<PersonalEvent> { it.timestamp }.thenBy { it.id })
                 .map { json.encodeToString(ArchivedEvent.fromPersonalEvent(it)) }
                 .toList()
-            file.writeText(if (lines.isEmpty()) "" else lines.joinToString(separator = "\n", postfix = "\n"), StandardCharsets.UTF_8)
+            atomicWrite(
+                file,
+                (if (lines.isEmpty()) "" else lines.joinToString(separator = "\n", postfix = "\n"))
+                    .toByteArray(StandardCharsets.UTF_8),
+            )
         }
         return ArchiveSegmentResult(slice, file, countLines(file), sha256(file))
     }
@@ -64,47 +77,91 @@ class ArchiveWriter(
         date: LocalDate,
         events: Iterable<PersonalEvent>,
         nowMillis: Long = System.currentTimeMillis(),
+        rewriteExisting: Boolean = false,
+        allowRewriteValidManifest: Boolean = false,
     ): ArchiveDayResult {
-        val now = java.time.Instant.ofEpochMilli(nowMillis).atZone(zoneId)
+        val eventList = events.toList()
+        val now = Instant.ofEpochMilli(nowMillis).atZone(zoneId)
         val today = now.toLocalDate()
+        val canRewrite = rewriteExisting && (allowRewriteValidManifest || !isManifestComplete(date))
         val closedHalves = when {
             date.isBefore(today) -> ArchiveSegmentType.entries.toList()
             date.isAfter(today) -> emptyList()
-            now.toLocalTime() >= java.time.LocalTime.NOON -> listOf(ArchiveSegmentType.FIRST_HALF)
+            now.toLocalTime() >= LocalTime.NOON -> listOf(ArchiveSegmentType.FIRST_HALF)
             else -> emptyList()
         }
         val segments = ArchiveSegmentType.entries
             .filter { half ->
                 half in closedHalves || segmentFile(date, half).isFile
             }
-            .map { writeSegment(date, it, events) }
-        val manifest = writeManifestIfComplete(date, segments)
+            .map { writeSegment(date, it, eventList, rewriteExisting = canRewrite) }
+        val manifest = if (date.isBefore(today)) {
+            writeManifestIfComplete(
+                date = date,
+                segments = segments,
+                completedAt = Instant.ofEpochMilli(nowMillis).atZone(zoneId).toOffsetDateTime().toString(),
+                rewriteExisting = canRewrite,
+            )
+        } else {
+            null
+        }
         return ArchiveDayResult(date, segments, manifest)
     }
 
-    fun writeManifestIfComplete(date: LocalDate, segments: List<ArchiveSegmentResult>): File? {
+    fun writeManifestIfComplete(
+        date: LocalDate,
+        segments: List<ArchiveSegmentResult>,
+        completedAt: String? = null,
+        rewriteExisting: Boolean = false,
+    ): File? {
         val expected = ArchiveSegmentType.entries.map { it.fileName }
         if (segments.map { it.slice.half.fileName }.toSet() != expected.toSet()) return null
         val directory = segments.first().file.parentFile ?: return null
         val manifest = File(directory, "manifest.json")
-        if (!manifest.exists()) {
-            val body = ArchiveManifest(
-                schemaVersion = if (deviceInstanceId.isNullOrBlank()) 1 else 2,
-                date = date.toString(),
-                timeZone = zoneId.id,
-                segments = segments.sortedBy { it.slice.startMillis }.map {
-                    ArchiveManifestSegment(it.slice.half.fileName, it.eventCount, it.sha256)
-                },
-                totalEventCount = segments.sumOf { it.eventCount },
-                sourceDeviceIds = deviceInstanceId?.let(::listOf).orEmpty(),
-                lastWriterDeviceId = deviceInstanceId,
-            )
-            manifest.writeText(json.encodeToString(body) + "\n", StandardCharsets.UTF_8)
+        val snapshots = segments.map { ArchiveSegmentSnapshot(it.slice.half.fileName, it.eventCount, it.sha256) }
+        if (manifest.isFile) {
+            val existing = runCatching {
+                json.decodeFromString<ArchiveManifest>(manifest.readText(StandardCharsets.UTF_8))
+            }.getOrNull()
+            if (existing != null && ArchiveManifestValidator.validate(existing, date, snapshots) == null) {
+                return manifest
+            }
+            if (!rewriteExisting) return null
         }
+        val body = ArchiveManifest(
+            schemaVersion = if (deviceInstanceId.isNullOrBlank()) 1 else 2,
+            date = date.toString(),
+            timeZone = zoneId.id,
+            segments = segments.sortedBy { it.slice.startMillis }.map {
+                ArchiveManifestSegment(it.slice.half.fileName, it.eventCount, it.sha256)
+            },
+            totalEventCount = segments.sumOf { it.eventCount },
+            sourceDeviceIds = deviceInstanceId?.let(::listOf).orEmpty(),
+            lastWriterDeviceId = deviceInstanceId,
+            completedAt = completedAt,
+        )
+        atomicWrite(manifest, (json.encodeToString(body) + "\n").toByteArray(StandardCharsets.UTF_8))
         return manifest
     }
 
-    private fun segmentFile(date: LocalDate, half: ArchiveSegmentType): File =
+    fun manifestFile(date: LocalDate): File =
+        File(archiveRoot, "${date.format(java.time.format.DateTimeFormatter.ofPattern("yyyy/MM"))}/$date/manifest.json")
+
+    fun isManifestComplete(date: LocalDate): Boolean {
+        val manifest = manifestFile(date)
+        if (!manifest.isFile) return false
+        val parsed = runCatching {
+            json.decodeFromString<ArchiveManifest>(manifest.readText(StandardCharsets.UTF_8))
+        }.getOrNull() ?: return false
+        val snapshots = ArchiveSegmentType.entries.map { half ->
+            val file = segmentFile(date, half)
+            if (!file.isFile) return false
+            ArchiveSegmentSnapshot(half.fileName, countLines(file), sha256(file))
+        }
+        return ArchiveManifestValidator.validate(parsed, date, snapshots) == null
+    }
+
+    fun segmentFile(date: LocalDate, half: ArchiveSegmentType): File =
         File(archiveRoot, "${date.format(java.time.format.DateTimeFormatter.ofPattern("yyyy/MM"))}/$date/${half.fileName}")
 
     private fun countLines(file: File): Int = file.useLines { lines -> lines.count() }
@@ -120,6 +177,31 @@ class ArchiveWriter(
             }
         }
         return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private fun atomicWrite(target: File, bytes: ByteArray) {
+        target.parentFile?.mkdirs()
+        val temporary = File(target.parentFile, "${target.name}.tmp")
+        temporary.writeBytes(bytes)
+        try {
+            runCatching {
+                Files.move(
+                    temporary.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            }.getOrElse {
+                Files.move(
+                    temporary.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            }
+        } catch (error: Throwable) {
+            temporary.delete()
+            throw error
+        }
     }
 
     companion object {

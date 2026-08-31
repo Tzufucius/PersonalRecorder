@@ -14,6 +14,8 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import java.util.concurrent.TimeUnit
 
 /** 将归档查询和同步协调交给应用层组合，避免 Worker 持有 UI 或凭证。 */
@@ -21,6 +23,11 @@ interface CloudSyncWorkRunner {
     suspend fun runSync(): SyncBatchResult
 
     suspend fun runSync(force: Boolean): SyncBatchResult = runSync()
+
+    suspend fun runDailyFinalize(): DailyFinalizeResult = DailyFinalizeResult(
+        localFinalizeSuccessful = true,
+        needsCloudSync = true,
+    )
 }
 
 class CloudSyncWorker(
@@ -56,12 +63,15 @@ class CloudSyncWorker(
 interface SyncScheduler {
     fun schedule(frequency: SyncFrequency)
     fun enqueueNow()
+    suspend fun ensureDailyFinalizeScheduled()
+    suspend fun enqueueDailyFinalizeCatchUp()
     fun observeNowWork(): Flow<List<WorkInfo>>
     fun cancel()
 }
 
 /** WorkManager 周期与手动任务调度器。 */
 class WorkManagerSyncScheduler(context: Context) : SyncScheduler {
+    private val appContext = context.applicationContext
     private val workManager = WorkManager.getInstance(context.applicationContext)
 
     override fun schedule(frequency: SyncFrequency) {
@@ -90,12 +100,43 @@ class WorkManagerSyncScheduler(context: Context) : SyncScheduler {
         workManager.enqueueUniqueWork(UNIQUE_NOW_WORK_NAME, ExistingWorkPolicy.KEEP, request)
     }
 
+    override suspend fun ensureDailyFinalizeScheduled() {
+        val hasActiveWork = withContext(Dispatchers.IO) {
+            workManager.getWorkInfosByTag(DailyArchiveFinalizeWorker.WORK_TAG).get()
+                .any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.BLOCKED }
+        }
+        if (!hasActiveWork) {
+            val now = System.currentTimeMillis()
+            val target = DailyArchiveFinalizeScheduler.nextTargetMillis(now)
+            workManager.enqueueUniqueWork(
+                DailyArchiveFinalizeScheduler.uniqueWorkName(target),
+                ExistingWorkPolicy.REPLACE,
+                DailyArchiveFinalizeWorker.request(
+                    scheduled = true,
+                    initialDelayMillis = (target - now).coerceAtLeast(0L),
+                ),
+            )
+        }
+    }
+
+    override suspend fun enqueueDailyFinalizeCatchUp() {
+        val request = DailyArchiveFinalizeWorker.request(
+            scheduled = false,
+            initialDelayMillis = 0L,
+        )
+        workManager.enqueueUniqueWork(DAILY_CATCH_UP_NAME, ExistingWorkPolicy.KEEP, request)
+    }
+
     override fun observeNowWork(): Flow<List<WorkInfo>> =
         workManager.getWorkInfosForUniqueWorkFlow(UNIQUE_NOW_WORK_NAME)
 
     override fun cancel() {
         workManager.cancelUniqueWork(UNIQUE_WORK_NAME)
         workManager.cancelUniqueWork(UNIQUE_NOW_WORK_NAME)
+        workManager.cancelUniqueWork(DAILY_SCHEDULE_NAME)
+        workManager.cancelUniqueWork(DAILY_CATCH_UP_NAME)
+        workManager.cancelAllWorkByTag(DailyArchiveFinalizeWorker.WORK_TAG)
+        workManager.cancelAllWorkByTag(DailyArchiveFinalizeWorker.CATCH_UP_WORK_TAG)
     }
 
     companion object {
@@ -103,5 +144,7 @@ class WorkManagerSyncScheduler(context: Context) : SyncScheduler {
         const val UNIQUE_NOW_WORK_NAME = "cloud_archive_sync_now"
         const val WORK_TAG = "cloud_archive_sync"
         const val MANUAL_WORK_TAG = "cloud_archive_sync_now"
+        const val DAILY_SCHEDULE_NAME = "daily_archive_finalize_schedule"
+        const val DAILY_CATCH_UP_NAME = "daily_archive_finalize_catch_up"
     }
 }

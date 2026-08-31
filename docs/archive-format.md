@@ -26,16 +26,28 @@ archive/YYYY/MM/YYYY-MM-DD/
 
 ## Manifest 与完整性
 
-当天两个 segment 都闭合后才生成最终 `manifest.json`，避免半日 manifest 被重复覆盖。manifest 记录固定的 `schemaVersion`、日期、设备时区、每个 segment 的数量和 SHA-256，以及当天总事件数。
+当天两个 segment 都闭合且通过完整性校验后才生成最终 `manifest.json`。`manifest.json` 是自然日归档的唯一完成标记，记录固定的 `schemaVersion`、日期、设备时区、每个 segment 的数量和 SHA-256、当天总事件数，以及可选的 `completedAt`。
 
 ```json
 {
   "schemaVersion": 1,
   "date": "2026-08-22",
   "timeZone": "Asia/Shanghai",
-  "segments": [],
-  "totalEventCount": 0
+  "segments": [
+    { "fileName": "00-12.jsonl", "eventCount": 0, "sha256": "<64-hex>" },
+    { "fileName": "12-24.jsonl", "eventCount": 0, "sha256": "<64-hex>" }
+  ],
+  "totalEventCount": 0,
+  "completedAt": "2026-08-23T00:37:12+08:00"
 }
 ```
 
-每个 JSONL 文件生成后计算 SHA-256，并保存到 Room 的 `ArchiveSegmentEntity` 和 manifest。文件一旦封存不自动因晚到事件重新生成；晚到事件仍保留在 Room 中。
+完整性合同如下：
+
+- 两个 JSONL 都存在且 manifest 存在、校验通过：`COMPLETE`
+- 只有一个 JSONL，或两个 JSONL 存在但没有 manifest：`INCOMPLETE`
+- manifest 引用文件缺失、数量不匹配、SHA 缺失或 SHA 不匹配：`INVALID`
+
+本地完整性与远端同步是两个独立维度：`Local COMPLETE` 表示两个 segment 和有效 manifest 已在设备上完成；`Remote PENDING` 表示本地 COMPLETE 但 GitHub manifest 尚未同步；`Remote SYNCED` 表示本地 COMPLETE 且 GitHub manifest 已成功发布。远端 pending 不属于本地 archive gap。
+
+最终 finalize 在 manifest 生成前允许基于 Room 重建尚未冻结的分片，以吸收迟到事件；manifest 成功同步后，历史 JSONL 和 manifest 保持 immutable。旧 schema 1/2 manifest 仍可解析，但缺少可验证 SHA 时不能判定为 `COMPLETE`。

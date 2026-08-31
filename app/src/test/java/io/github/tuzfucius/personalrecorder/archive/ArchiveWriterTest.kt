@@ -87,4 +87,50 @@ class ArchiveWriterTest {
         assertTrue(afternoon[1].contains("\\n"))
         assertTrue(afternoon[1].contains("中文"))
     }
+
+    @Test
+    fun finalRewriteCapturesLateEventsBeforeManifestAndFreezesAfterward() {
+        val root = Files.createTempDirectory("archive-test").toFile()
+        val date = LocalDate.of(2026, 8, 22)
+        fun event(id: String, createdAt: Long) = PersonalEvent(
+            id = id,
+            timestamp = date.atTime(1, 0).atZone(zone).toInstant().toEpochMilli(),
+            source = "notification",
+            packageName = "com.example",
+            title = null,
+            content = id,
+            bigText = null,
+            textLines = emptyList(),
+            notificationKey = id,
+            notificationId = 1,
+            category = null,
+            channelId = null,
+            groupKey = null,
+            isOngoing = false,
+            isGroupSummary = false,
+            isClearable = true,
+            createdAt = createdAt,
+        )
+
+        val writer = ArchiveWriter(root, zone)
+        writer.writeDay(date, listOf(event("initial", 1L)), date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli())
+        writer.writeDay(
+            date,
+            listOf(event("initial", 1L), event("late", 2L)),
+            date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(),
+            rewriteExisting = true,
+            allowRewriteValidManifest = true,
+        )
+        assertTrue(writer.segmentFile(date, ArchiveSegmentType.FIRST_HALF).readText().contains("late"))
+        val frozen = writer.segmentFile(date, ArchiveSegmentType.FIRST_HALF).readBytes()
+
+        writer.writeDay(
+            date,
+            listOf(event("initial", 1L), event("late", 2L), event("too-late", 3L)),
+            date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(),
+            rewriteExisting = true,
+        )
+        assertEquals(frozen.toList(), writer.segmentFile(date, ArchiveSegmentType.FIRST_HALF).readBytes().toList())
+        assertTrue(writer.isManifestComplete(date))
+    }
 }

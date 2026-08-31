@@ -195,9 +195,25 @@ class GitHubCloudSyncBackend(
                 it.relativePath to BackendSyncResult.Failure(SyncError.NotConfigured("GitHub 尚未完成连接"))
             }
 
-        return archives.sortedBy { it.relativePath }.associate { archive ->
-            archive.relativePath to syncOne(repository, archive)
+        val ordered = archives.sortedWith(compareBy<CloudArchive> {
+            if (it.relativePath.endsWith("/manifest.json")) 1 else 0
+        }.thenBy { it.relativePath })
+        val results = linkedMapOf<String, BackendSyncResult>()
+        var segmentFailed = false
+        ordered.forEach { archive ->
+            if (archive.relativePath.endsWith("/manifest.json") && segmentFailed) {
+                results[archive.relativePath] = BackendSyncResult.Failure(
+                    SyncError.Network("segment upload failed; manifest deferred"),
+                )
+            } else {
+                val result = syncOne(repository, archive)
+                results[archive.relativePath] = result
+                if (!archive.relativePath.endsWith("/manifest.json") && result is BackendSyncResult.Failure) {
+                    segmentFailed = true
+                }
+            }
         }
+        return results
     }
 
     private suspend fun syncOne(repository: GitHubRepository, archive: CloudArchive): BackendSyncResult {

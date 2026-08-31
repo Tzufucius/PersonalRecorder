@@ -5,14 +5,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import io.github.tuzfucius.personalrecorder.sync.CloudSyncRuntime
-import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsState
-import io.github.tuzfucius.personalrecorder.settings.CloudSyncSettingsStore
-import androidx.lifecycle.lifecycleScope
 import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import io.github.tuzfucius.personalrecorder.ui.PersonalRecorderApp
 import io.github.tuzfucius.personalrecorder.ui.theme.PersonalRecorderTheme
 
@@ -25,12 +20,6 @@ class MainActivity : ComponentActivity() {
         (application as? PersonalRecorderApplication)?.refreshRecentTaskPolicy(taskId)
         openSettings.value = intent.getBooleanExtra(EXTRA_OPEN_DIAGNOSTICS, false)
         io.github.tuzfucius.personalrecorder.background.BackgroundHealthWorker.enqueueNow(this)
-        lifecycleScope.launch {
-            val state = CloudSyncSettingsStore(this@MainActivity).state.first()
-            (state as? CloudSyncSettingsState.Ready)?.settings?.let { settings ->
-                CloudSyncRuntime.scheduler(this@MainActivity).schedule(settings.frequency)
-            }
-        }
         handleIntent(intent)
         setContent {
             PersonalRecorderTheme {
