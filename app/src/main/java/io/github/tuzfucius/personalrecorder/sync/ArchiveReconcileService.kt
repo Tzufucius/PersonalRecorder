@@ -3,7 +3,9 @@ package io.github.tuzfucius.personalrecorder.sync
 import android.util.Log
 import io.github.tuzfucius.personalrecorder.archive.ArchiveManifest
 import io.github.tuzfucius.personalrecorder.archive.ArchiveManifestSegment
+import io.github.tuzfucius.personalrecorder.archive.ArchiveManifestValidator
 import io.github.tuzfucius.personalrecorder.archive.ArchiveSegmentType
+import io.github.tuzfucius.personalrecorder.archive.ArchiveSegmentSnapshot
 import io.github.tuzfucius.personalrecorder.archive.ArchiveWriter
 import io.github.tuzfucius.personalrecorder.archive.mergeSourceDeviceIds
 import io.github.tuzfucius.personalrecorder.data.AppDatabase
@@ -165,7 +167,8 @@ class ArchiveReconcileService(
         val remoteContents = linkedMapOf<String, ByteArray>()
         val remoteDescriptors = mutableListOf<ArchiveDescriptor>()
         val remoteVerification = linkedMapOf<String, ArchiveVerificationStatus>()
-        val manifestShaByPath = linkedMapOf<String, String>()
+        val manifestExpectations = linkedMapOf<String, ArchiveManifestSegment>()
+        val manifestExpectedPaths = linkedMapOf<String, Set<String>>()
         val invalidRemote = linkedMapOf<String, String>()
         val results = mutableListOf<ArchiveSyncResult>()
         var downloaded = 0
@@ -177,20 +180,26 @@ class ArchiveReconcileService(
             remoteContents[descriptor.relativePath] = content
             remoteDescriptors += descriptor.copy(sha256 = sha256, size = content.size.toLong())
             downloaded++
-            parseManifestExpectations(descriptor.relativePath, content).forEach { (path, expectedSha) ->
-                if (expectedSha.isNotBlank()) manifestShaByPath[path] = expectedSha
-            }
+            val expectations = parseManifestExpectations(descriptor.relativePath, content)
+            manifestExpectations.putAll(expectations)
+            manifestExpectedPaths[descriptor.relativePath] = expectations.keys
         }
         remoteRaw.descriptors.filterNot { it.isManifest }.forEach { descriptor ->
             val content = api.downloadContent(repository, descriptor.relativePath)
                 ?: throw SyncHttpException(422, "GitHub 归档缺少内容: ${descriptor.relativePath}")
             val sha256 = ArchiveFileStore.sha256(content)
-            val expectedSha = manifestShaByPath[descriptor.relativePath]
-            val verification = if (expectedSha.isNullOrBlank()) {
+            val expected = manifestExpectations[descriptor.relativePath]
+            val verification = if (expected == null) {
                 ArchiveVerificationStatus.LEGACY_UNVERIFIED
             } else {
-                if (!sha256.equals(expectedSha, ignoreCase = true)) {
-                    invalidRemote[descriptor.relativePath] = "云端归档校验失败: ${descriptor.relativePath}"
+                val eventCount = runCatching { reconciler.parseJsonl(content).size }.getOrElse {
+                    invalidRemote[descriptor.relativePath] = "JSONL parse failed: ${descriptor.relativePath}"
+                    -1
+                }
+                if (expected.sha256.isBlank() || !sha256.equals(expected.sha256, ignoreCase = true) ||
+                    eventCount != expected.eventCount
+                ) {
+                    invalidRemote[descriptor.relativePath] = "Remote archive validation failed: ${descriptor.relativePath}"
                 }
                 ArchiveVerificationStatus.VERIFIED
             }
@@ -198,6 +207,13 @@ class ArchiveReconcileService(
             remoteVerification[descriptor.relativePath] = verification
             remoteDescriptors += descriptor.copy(sha256 = sha256, size = content.size.toLong())
             downloaded++
+        }
+
+        manifestExpectedPaths.forEach { (manifestPath, paths) ->
+            val missing = paths.filter { it !in remoteContents }
+            if (missing.isNotEmpty()) {
+                invalidRemote[manifestPath] = "manifest 引用的分片缺失: ${missing.joinToString()}"
+            }
         }
 
         val localByPath = localInventory.descriptors.associateBy { it.relativePath }
@@ -346,11 +362,19 @@ class ArchiveReconcileService(
             )
         }
 
+        val availableRemoteSegments = results
+            .filter { it.isSuccessful && !it.archive.relativePath.endsWith("/manifest.json") }
+            .map { it.archive.relativePath }
+            .toMutableSet()
+
         val manifestResults = reconcileManifests(
             repository = repository,
             localInventory = localScanner.scan(scope),
             remoteDescriptors = remoteDescriptors.filter { it.isManifest }.associateBy { it.relativePath },
             remoteContents = remoteContents,
+            manifestExpectedPaths = manifestExpectedPaths,
+            invalidRemote = invalidRemote,
+            availableSegmentPaths = availableRemoteSegments,
         )
         results += manifestResults.results
         uploaded += manifestResults.uploaded
@@ -394,7 +418,7 @@ class ArchiveReconcileService(
     private fun parseManifestExpectations(
         manifestPath: String,
         bytes: ByteArray,
-    ): Map<String, String> {
+    ): Map<String, ArchiveManifestSegment> {
         val manifest = try {
             json.decodeFromString<ArchiveManifest>(bytes.toString(Charsets.UTF_8))
         } catch (error: Throwable) {
@@ -402,8 +426,19 @@ class ArchiveReconcileService(
             throw InvalidArchiveException("manifest.json 无法解析: $manifestPath", error)
         }
         val directory = manifestPath.substringBeforeLast('/')
+        val pathDate = manifestPath.split('/').getOrNull(3)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            ?: throw InvalidArchiveException("manifest.json 路径日期无效: $manifestPath")
+        ArchiveManifestValidator.validateStructure(manifest, pathDate)?.let {
+            throw InvalidArchiveException("manifest.json 结构无效: $manifestPath ($it)")
+        }
+        if (manifest.segments.any { it.sha256.isBlank() || it.eventCount < 0 }) {
+            throw InvalidArchiveException("manifest.json 缺少 SHA: $manifestPath")
+        }
+        if (manifest.totalEventCount != manifest.segments.sumOf { it.eventCount }) {
+            throw InvalidArchiveException("manifest totalEventCount does not match: $manifestPath")
+        }
         return manifest.segments.associate { segment ->
-            "$directory/${segment.fileName}" to segment.sha256
+            "$directory/${segment.fileName}" to segment
         }
     }
 
@@ -412,6 +447,9 @@ class ArchiveReconcileService(
         localInventory: LocalArchiveInventory,
         remoteDescriptors: Map<String, ArchiveDescriptor>,
         remoteContents: Map<String, ByteArray>,
+        manifestExpectedPaths: Map<String, Set<String>>,
+        invalidRemote: Map<String, String>,
+        availableSegmentPaths: Set<String>,
     ): ManifestReport {
         val deviceId = deviceInstanceIdProvider()
         val localSegments = localInventory.descriptors.filterNot { it.isManifest }.groupBy { it.date }
@@ -419,25 +457,57 @@ class ArchiveReconcileService(
         var uploaded = 0
         var skipped = 0
         localSegments.keys.sorted().forEach { date ->
+            val finalizeAt = LocalDate.parse(date).plusDays(1)
+                .atTime(0, 30)
+                .atZone(zoneId)
+                .toInstant()
+                .toEpochMilli()
+            if (nowMillis() < finalizeAt) return@forEach
             val segments = localSegments[date].orEmpty()
             if (segments.map { it.slot }.toSet() != setOf(
                     ArchiveSegmentType.FIRST_HALF.name,
                     ArchiveSegmentType.SECOND_HALF.name,
-                )) return@forEach
+            )) return@forEach
             val manifestPath = "archive/${date.substring(0, 4)}/${date.substring(5, 7)}/$date/manifest.json"
-            val manifestBytes = buildManifest(
-                date = date,
-                segments = segments,
-                deviceId = deviceId,
-                localManifestBytes = File(filesDir, manifestPath).takeIf { it.isFile }?.readBytes(),
-                remoteManifestBytes = remoteDescriptors[manifestPath]?.let { remoteContents[it.relativePath] },
-            )
-            ArchiveFileStore.atomicWrite(filesDir, manifestPath, manifestBytes)
+            val localManifestFile = File(filesDir, manifestPath)
+            val localManifestBytes = localManifestFile.takeIf { it.isFile }?.readBytes()
+            val localManifestIsValid = localManifestBytes?.let { isManifestValid(date, segments, it) } == true
+            val manifestBytes = if (localManifestIsValid) {
+                requireNotNull(localManifestBytes)
+            } else {
+                buildManifest(
+                    date = date,
+                    segments = segments,
+                    deviceId = deviceId,
+                    localManifestBytes = localManifestBytes,
+                    remoteManifestBytes = remoteDescriptors[manifestPath]?.let { remoteContents[it.relativePath] },
+                )
+            }
+            if (!localManifestIsValid) {
+                ArchiveFileStore.atomicWrite(filesDir, manifestPath, manifestBytes)
+            }
             val localDescriptor = ArchivePathDescriptor.fromPath(
                 manifestPath,
                 ArchiveFileStore.sha256(manifestBytes),
                 manifestBytes.size.toLong(),
             ) ?: return@forEach
+            val segmentPaths = segments.map { it.relativePath }.toSet()
+            val segmentsReady = segmentPaths.all { path ->
+                path in availableSegmentPaths ||
+                    remoteContents[path]?.let { bytes ->
+                        val local = segments.firstOrNull { it.relativePath == path }
+                        local != null && ArchiveFileStore.sha256(bytes).equals(local.sha256, ignoreCase = true)
+                    } == true
+            }
+            if (!segmentsReady) {
+                val pending = failedResult(
+                    localDescriptor,
+                    SyncError.Network("等待两个分片上传完成后再发布 manifest"),
+                )
+                persistState(localDescriptor.segmentId, pending)
+                results += pending
+                return@forEach
+            }
             val remoteDescriptor = remoteDescriptors[manifestPath]
             val remoteManifestBytes = remoteDescriptor?.let { remoteContents[it.relativePath] }
             val result = if (remoteDescriptor != null && remoteManifestBytes != null &&
@@ -458,7 +528,28 @@ class ArchiveReconcileService(
         remoteDescriptors.keys.sorted().forEach { manifestPath ->
             val remoteDescriptor = remoteDescriptors[manifestPath] ?: return@forEach
             if (!remoteDescriptor.isManifest || localSegments.containsKey(remoteDescriptor.date)) return@forEach
+            invalidRemote[manifestPath]?.let { message ->
+                val result = failedResult(remoteDescriptor, SyncError.InvalidArchive(message))
+                persistState(remoteDescriptor.segmentId, result)
+                results += result
+                return@forEach
+            }
             val bytes = remoteContents[manifestPath] ?: return@forEach
+            val expected = manifestExpectedPaths[manifestPath] ?: return@forEach
+            if (!expected.all { path -> ArchiveFileStore.file(filesDir, path).isFile }) return@forEach
+            val manifest = runCatching { json.decodeFromString<ArchiveManifest>(bytes.toString(Charsets.UTF_8)) }
+                .getOrNull() ?: return@forEach
+            val snapshots = expected.map { path ->
+                val file = ArchiveFileStore.file(filesDir, path)
+                ArchiveSegmentSnapshot(
+                    fileName = path.substringAfterLast('/'),
+                    eventCount = runCatching { reconciler.parseJsonl(file.readBytes()).size }.getOrDefault(-1),
+                    sha256 = ArchiveFileStore.sha256(file.readBytes()),
+                )
+            }
+            if (ArchiveManifestValidator.validate(manifest, LocalDate.parse(remoteDescriptor.date), snapshots) != null) {
+                return@forEach
+            }
             ArchiveFileStore.atomicWrite(filesDir, manifestPath, bytes, remoteDescriptor.sha256)
             val result = syncedResult(remoteDescriptor, remoteDescriptor.remoteSha, wasAlreadyPresent = false)
             persistState(remoteDescriptor.segmentId, result)
@@ -489,21 +580,41 @@ class ArchiveReconcileService(
             segments = segments.sortedBy { it.slot }.map { descriptor ->
                 ArchiveManifestSegment(
                     fileName = descriptor.relativePath.substringAfterLast('/'),
-                    eventCount = runCatching {
-                        reconciler.parseJsonl(ArchiveFileStore.file(filesDir, descriptor.relativePath).readBytes()).size
-                    }.getOrDefault(descriptor.size.toInt()),
+                    eventCount = readLocalEventCount(descriptor),
                     sha256 = descriptor.sha256,
                 )
             },
             totalEventCount = segments.sumOf { descriptor ->
-                runCatching {
-                    reconciler.parseJsonl(ArchiveFileStore.file(filesDir, descriptor.relativePath).readBytes()).size
-                }.getOrDefault(descriptor.size.toInt())
+                readLocalEventCount(descriptor)
             },
             sourceDeviceIds = sourceDeviceIds,
             lastWriterDeviceId = deviceId,
+            completedAt = localManifest?.completedAt ?: remoteManifest?.completedAt
+                ?: java.time.Instant.ofEpochMilli(nowMillis()).atZone(zoneId).toOffsetDateTime().toString(),
         )
         return (json.encodeToString(body) + "\n").toByteArray(Charsets.UTF_8)
+    }
+
+    private fun readLocalEventCount(descriptor: ArchiveDescriptor): Int =
+        reconciler.parseJsonl(ArchiveFileStore.file(filesDir, descriptor.relativePath).readBytes()).size
+
+    private fun isManifestValid(
+        date: String,
+        segments: List<ArchiveDescriptor>,
+        bytes: ByteArray,
+    ): Boolean {
+        val manifest = runCatching { json.decodeFromString<ArchiveManifest>(bytes.toString(Charsets.UTF_8)) }
+            .getOrNull() ?: return false
+        val snapshots = segments.map { descriptor ->
+            val file = ArchiveFileStore.file(filesDir, descriptor.relativePath)
+            if (!file.isFile) return false
+            ArchiveSegmentSnapshot(
+                fileName = descriptor.relativePath.substringAfterLast('/'),
+                eventCount = runCatching { reconciler.parseJsonl(file.readBytes()).size }.getOrDefault(-1),
+                sha256 = ArchiveFileStore.sha256(file.readBytes()),
+            )
+        }
+        return ArchiveManifestValidator.validate(manifest, LocalDate.parse(date), snapshots) == null
     }
 
     private suspend fun installRemoteSegment(

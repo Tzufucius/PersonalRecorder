@@ -4,9 +4,9 @@
 
 ## 调度与错误
 
-`CloudSyncWorker` 使用 WorkManager 和 `NetworkType.CONNECTED`。周期任务按设置频率尽力执行，手动任务使用唯一 work `cloud_archive_sync_now`，重复点击不会创建并行任务。
+`CloudSyncWorker` 使用 WorkManager 和 `NetworkType.CONNECTED`。普通云同步仍按用户选择的频率尽力执行，手动任务使用唯一 work `cloud_archive_sync_now`。每日完整归档由独立的 `DailyArchiveFinalizeWorker` 负责，使用 OneTimeWorkRequest 动态安排本地时间 `00:30`，执行后追加下一次任务。Application 启动和 GitHub 连接成功都会确保每日任务存在，并对历史缺口 enqueue 唯一 catch-up work；这些流程不依赖打开 UI 或修改同步频率。
 
-网络、服务不可用和限流错误由 WorkManager 使用指数退避重试；认证、权限、冲突、无效归档和未配置错误只记录失败，不由 Worker 无限重试。Runner 在进程内使用 Mutex，避免周期任务和手动任务同时处理同一批文件。
+网络、服务不可用和限流错误由 WorkManager 使用指数退避重试；认证、权限、冲突、无效归档和未配置错误只记录失败，不由 Worker 无限重试。网络失败时本地 JSONL 和 manifest 保留，Room 同步状态保持 pending，下一次运行只补传。Runner 在进程内使用 Mutex，避免每日任务、周期任务和手动任务同时处理同一批文件。
 
 ## GitHub
 
@@ -22,7 +22,7 @@ GitHub 使用 OAuth App Device Flow：
 
 OAuth App 使用 `repo` scope。该权限大于 Personal Recorder 实际所需的单仓库写入权限，后续可迁移到 GitHub App 以收窄权限，本轮不迁移。
 
-GitHub access token 仅通过 Android Keystore 保护的 `SecureSecretStore` 保存。一次 batch 会通过 Git Data API 创建 blob、tree、commit 并更新 branch ref，最多产生一个逻辑 commit。远端同路径同内容视为幂等成功，同路径不同内容视为冲突，不静默覆盖。
+GitHub access token 仅通过 Android Keystore 保护的 `SecureSecretStore` 保存。完整日期使用 Contents API 按 `00-12.jsonl`、`12-24.jsonl`、`manifest.json` 顺序逐个上传；manifest 只有在两个分片已经远端存在且内容一致后才发布，因此它是远端完成标记。Contents API 的三个 PUT 不是单一原子 commit，期间可能短暂只看到分片，但不会先看到 manifest。远端同路径同内容视为幂等成功，同路径不同内容按现有 reconcile 规则处理。
 
 ## Google Drive
 
@@ -34,4 +34,4 @@ access token 不长期持久化。Drive 请求返回 401 时清除 Google token 
 
 ## 归档发现
 
-同步前只读取一次事件时间范围和已有 segment ID。`ArchivePlanner` 在内存中计算缺失的闭合 segment，只对缺失日期查询 events；因此可以恢复历史 hole，同时避免每天重复查询已有归档。
+同步前由 `ArchivePlanner` 和 `ArchiveService` 统一扫描事件覆盖范围、闭合日期、segment 元数据和 manifest 完整性。每日 finalize 会补齐所有已闭合但缺少分片或 manifest 的日期；普通同步仍可生成当前已闭合的半日分片。manifest 只有在两个 JSONL 的行数和 SHA-256 均匹配时才作为 `COMPLETE`，因此 Daily Review 可以把 manifest 作为唯一 completeness contract。

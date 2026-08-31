@@ -5,3 +5,7 @@
 分段类型使用 `ArchiveSegmentType.FIRST_HALF` 和 `ArchiveSegmentType.SECOND_HALF`，文件名固定为 `00-12.jsonl` 与 `12-24.jsonl`。
 
 完整日 manifest 在具备设备实例 ID 时使用 schema 2，并通过可选 `sourceDeviceIds`、`lastWriterDeviceId` 标记归档来源；旧 schema 1 manifest 仍可读取。
+
+# 归档完整性
+
+`ArchiveManifestValidator` 统一校验两个固定分片、JSONL 实际行数、SHA-256 与总数。每日 finalize 会在 manifest 发布前基于 Room 重建归档以吸收迟到事件；有效 manifest 同步后冻结历史文件。
